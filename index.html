@@ -1,773 +1,954 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>tempra — Read the sky.</title>
-  <meta name="description" content="Beautiful Australian weather. Powered by BOM forecast data." />
-
-  <!-- Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
-
-  <!-- React + Babel (CDN — no build step needed) -->
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>tempra</title>
+  <meta name="description" content="Read the sky. Australian weather, beautifully simple."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet"/>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { background: #0a0a0f; min-height: 100vh; }
-    body { -webkit-font-smoothing: antialiased; }
-    ::-webkit-scrollbar { display: none; }
-    button { -webkit-tap-highlight-color: transparent; cursor: pointer; }
-
-    @keyframes shimmer {
-      0%   { background-position: 200% center; }
-      100% { background-position: -200% center; }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body{min-height:100vh;background:#0c1117}
+    body{-webkit-font-smoothing:antialiased;font-family:'Inter',sans-serif}
+    ::-webkit-scrollbar{display:none}
+    button{-webkit-tap-highlight-color:transparent;cursor:pointer;font-family:inherit}
+    select{font-family:inherit}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @keyframes twinkle{0%,100%{opacity:.08}50%{opacity:.5}}
+    @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+    .fade-in{animation:fadeIn .5s ease both}
+    .insights-btn{
+      position:fixed;bottom:24px;right:20px;z-index:100;
+      background:rgba(255,255,255,0.12);backdrop-filter:blur(16px);
+      border:1px solid rgba(255,255,255,0.18);border-radius:24px;
+      color:#fff;padding:10px 18px;font-size:13px;font-weight:600;
+      letter-spacing:.03em;display:flex;align-items:center;gap:7px;
+      transition:all .2s;box-shadow:0 4px 24px rgba(0,0,0,0.3)
     }
-    @keyframes twinkle {
-      0%, 100% { opacity: 0.1; }
-      50%       { opacity: 0.85; }
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 0.4; }
-      50%       { opacity: 1; }
-    }
-
-    .tempra-shimmer {
-      background: linear-gradient(90deg, #fde68a 0%, #f97316 35%, #fde68a 50%, #f97316 65%, #fde68a 100%);
-      background-size: 200% auto;
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      animation: shimmer 5s linear infinite;
-    }
+    .insights-btn:hover{background:rgba(255,255,255,0.18)}
+    .insights-btn.active{background:rgba(99,102,241,0.3);border-color:rgba(99,102,241,0.5)}
   </style>
 </head>
 <body>
-  <div id="root"></div>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback,useRef,useMemo}=React;
 
-  <script type="text/babel">
-    const { useState, useEffect, useCallback } = React;
+// ── Constants ─────────────────────────────────────────────────────────────────
+const CITIES=[
+  {name:"Melbourne",lat:-37.8136,lon:144.9631,tz:"Australia/Melbourne",radar:"IDR023",state:"VIC"},
+  {name:"Sydney",lat:-33.8688,lon:151.2093,tz:"Australia/Sydney",radar:"IDR713",state:"NSW"},
+  {name:"Brisbane",lat:-27.4698,lon:153.0251,tz:"Australia/Brisbane",radar:"IDR663",state:"QLD"},
+  {name:"Perth",lat:-31.9505,lon:115.8605,tz:"Australia/Perth",radar:"IDR704",state:"WA"},
+  {name:"Adelaide",lat:-34.9285,lon:138.6007,tz:"Australia/Adelaide",radar:"IDR643",state:"SA"},
+  {name:"Canberra",lat:-35.2809,lon:149.13,tz:"Australia/Sydney",radar:"IDR403",state:"ACT"},
+  {name:"Darwin",lat:-12.4634,lon:130.8456,tz:"Australia/Darwin",radar:"IDR632",state:"NT"},
+  {name:"Hobart",lat:-42.8821,lon:147.3272,tz:"Australia/Hobart",radar:"IDR023",state:"TAS"},
+];
 
-    // ─── Constants ──────────────────────────────────────────────────────────────
+const WMO={
+  0:{label:"Clear",severity:0},1:{label:"Mainly Clear",severity:0},
+  2:{label:"Partly Cloudy",severity:1},3:{label:"Overcast",severity:1},
+  45:{label:"Fog",severity:2},48:{label:"Icy Fog",severity:2},
+  51:{label:"Light Drizzle",severity:2},53:{label:"Drizzle",severity:2},55:{label:"Heavy Drizzle",severity:3},
+  61:{label:"Light Rain",severity:2},63:{label:"Rain",severity:3},65:{label:"Heavy Rain",severity:4},
+  71:{label:"Light Snow",severity:3},73:{label:"Snow",severity:4},75:{label:"Heavy Snow",severity:5},
+  80:{label:"Light Showers",severity:2},81:{label:"Showers",severity:3},82:{label:"Heavy Showers",severity:4},
+  95:{label:"Thunderstorm",severity:5},96:{label:"Hail Storm",severity:5},99:{label:"Heavy Hail",severity:5},
+};
+const getCode=c=>WMO[c]||{label:"Unknown",severity:0};
+const DAYS=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MONTHS_LONG=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MONTHS_SHORT=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const AQI_LABELS=["Good","Fair","Moderate","Poor","Very Poor"];
+const AQI_COLORS=["#22c55e","#84cc16","#eab308","#f97316","#ef4444"];
 
-    const CITIES = [
-      { name: "Sydney",    lat: -33.8688, lon: 151.2093, tz: "Australia/Sydney",    radar: "IDR713" },
-      { name: "Melbourne", lat: -37.8136, lon: 144.9631, tz: "Australia/Melbourne", radar: "IDR023" },
-      { name: "Brisbane",  lat: -27.4698, lon: 153.0251, tz: "Australia/Brisbane",  radar: "IDR663" },
-      { name: "Perth",     lat: -31.9505, lon: 115.8605, tz: "Australia/Perth",     radar: "IDR704" },
-      { name: "Adelaide",  lat: -34.9285, lon: 138.6007, tz: "Australia/Adelaide",  radar: "IDR643" },
-      { name: "Canberra",  lat: -35.2809, lon: 149.1300, tz: "Australia/Sydney",    radar: "IDR403" },
-      { name: "Darwin",    lat: -12.4634, lon: 130.8456, tz: "Australia/Darwin",    radar: "IDR632" },
-      { name: "Hobart",    lat: -42.8821, lon: 147.3272, tz: "Australia/Hobart",    radar: "IDR023" },
-    ];
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function ordinal(n){const s=["th","st","nd","rd"],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0]);}
+function fmtDateNatural(date){return `${DAYS[date.getDay()]}, ${MONTHS_LONG[date.getMonth()]} ${ordinal(date.getDate())}`;}
+function fmtTimeNatural(date){
+  const h=date.getHours(),m=date.getMinutes();
+  return `${h%12||12}:${String(m).padStart(2,"0")}${h>=12?"pm":"am"}`;
+}
+function fmtDateTimeNatural(date){return `${fmtTimeNatural(date)} on ${fmtDateNatural(date)}`;}
+function timeToMins(str){if(!str)return 0;const t=str.includes("T")?str.split("T")[1]:str;const[h,m]=t.split(":").map(Number);return h*60+(m||0);}
+function fmtMins(mins){const h=Math.floor(mins/60),m=Math.round(mins%60);return `${h%12||12}:${String(m).padStart(2,"0")}${h>=12?"pm":"am"}`;}
+function lerpHex(a,b,t){
+  const p=s=>parseInt(s.replace("#",""),16);
+  const ai=p(a),bi=p(b);
+  const r=Math.round(((ai>>16)&255)*(1-t)+((bi>>16)&255)*t);
+  const g=Math.round(((ai>>8)&255)*(1-t)+((bi>>8)&255)*t);
+  const bl=Math.round((ai&255)*(1-t)+(bi&255)*t);
+  return `#${r.toString(16).padStart(2,"0")}${g.toString(16).padStart(2,"0")}${bl.toString(16).padStart(2,"0")}`;
+}
+function skyGradient(nowMins,riseMins,setMins){
+  const ph=[
+    {at:0,top:"#03001e",bot:"#07052e"},
+    {at:riseMins-80,top:"#0d1b4b",bot:"#1a0a3e"},
+    {at:riseMins-25,top:"#5b1a8b",bot:"#b03020"},
+    {at:riseMins,top:"#c84a00",bot:"#f0a020"},
+    {at:riseMins+50,top:"#1555b0",bot:"#d05000"},
+    {at:riseMins+120,top:"#1555b0",bot:"#3a9de0"},
+    {at:(riseMins+setMins)/2,top:"#0d3d91",bot:"#1565c0"},
+    {at:setMins-120,top:"#1555b0",bot:"#3a9de0"},
+    {at:setMins-45,top:"#82100c",bot:"#e06010"},
+    {at:setMins,top:"#6b1500",bot:"#d05a00"},
+    {at:setMins+40,top:"#3a0860",bot:"#6b0e3f"},
+    {at:setMins+100,top:"#0a0520",bot:"#07052e"},
+    {at:1440,top:"#03001e",bot:"#07052e"},
+  ];
+  let p1=ph[0],p2=ph[ph.length-1];
+  for(let i=0;i<ph.length-1;i++){if(nowMins>=ph[i].at&&nowMins<ph[i+1].at){p1=ph[i];p2=ph[i+1];break;}}
+  const t=p2.at===p1.at?0:(nowMins-p1.at)/(p2.at-p1.at);
+  return{top:lerpHex(p1.top,p2.top,t),bot:lerpHex(p1.bot,p2.bot,t)};
+}
+function isDark(hex){const p=parseInt(hex.replace("#",""),16);const r=(p>>16)&255,g=(p>>8)&255,b=p&255;return(0.299*r+0.587*g+0.114*b)<128;}
 
-    const WMO = {
-      0:  { label: "Clear Sky",     icon: "☀️",  severity: 0 },
-      1:  { label: "Mainly Clear",  icon: "🌤️",  severity: 0 },
-      2:  { label: "Partly Cloudy", icon: "⛅",  severity: 1 },
-      3:  { label: "Overcast",      icon: "☁️",  severity: 1 },
-      45: { label: "Foggy",         icon: "🌫️",  severity: 2 },
-      48: { label: "Icy Fog",       icon: "🌫️",  severity: 2 },
-      51: { label: "Light Drizzle", icon: "🌦️",  severity: 2 },
-      53: { label: "Drizzle",       icon: "🌦️",  severity: 2 },
-      55: { label: "Heavy Drizzle", icon: "🌧️",  severity: 3 },
-      61: { label: "Light Rain",    icon: "🌧️",  severity: 2 },
-      63: { label: "Rain",          icon: "🌧️",  severity: 3 },
-      65: { label: "Heavy Rain",    icon: "🌧️",  severity: 4 },
-      71: { label: "Light Snow",    icon: "🌨️",  severity: 3 },
-      73: { label: "Snow",          icon: "❄️",  severity: 4 },
-      75: { label: "Heavy Snow",    icon: "❄️",  severity: 5 },
-      80: { label: "Light Showers", icon: "🌦️",  severity: 2 },
-      81: { label: "Showers",       icon: "🌧️",  severity: 3 },
-      82: { label: "Heavy Showers", icon: "⛈️",  severity: 4 },
-      95: { label: "Thunderstorm",  icon: "⛈️",  severity: 5 },
-      96: { label: "Hail Storm",    icon: "⛈️",  severity: 5 },
-      99: { label: "Heavy Hail",    icon: "⛈️",  severity: 5 },
-    };
-    const getCode = (c) => WMO[c] || { label: "Unknown", icon: "🌡️", severity: 0 };
+// ── SVG Weather Icons ─────────────────────────────────────────────────────────
+function WeatherIcon({code,size=48,color="currentColor",opacity=1}){
+  const s=getCode(code).severity;
+  const c=color;
+  const sw=size/24; // strokeWidth base
+  const style={display:"block",flexShrink:0,opacity};
+  if(code===0||code===1){// Sun
+    return(
+      <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={style}>
+        <circle cx="24" cy="24" r="9" stroke={c} strokeWidth={sw*1.8}/>
+        {[0,45,90,135,180,225,270,315].map((deg,i)=>{
+          const r1=14,r2=18,rad=deg*Math.PI/180;
+          return <line key={i} x1={24+r1*Math.cos(rad)} y1={24+r1*Math.sin(rad)} x2={24+r2*Math.cos(rad)} y2={24+r2*Math.sin(rad)} stroke={c} strokeWidth={sw*1.5} strokeLinecap="round"/>;
+        })}
+      </svg>
+    );
+  }
+  if(code===2){// Partly cloudy
+    return(
+      <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={style}>
+        <circle cx="20" cy="19" r="7" stroke={c} strokeWidth={sw*1.6}/>
+        {[315,0,45].map((deg,i)=>{const r1=11,r2=15,rad=deg*Math.PI/180;return <line key={i} x1={20+r1*Math.cos(rad)} y1={19+r1*Math.sin(rad)} x2={20+r2*Math.cos(rad)} y2={19+r2*Math.sin(rad)} stroke={c} strokeWidth={sw*1.4} strokeLinecap="round"/>;})}
+        <rect x="14" y="26" width="22" height="10" rx="5" stroke={c} strokeWidth={sw*1.6}/>
+      </svg>
+    );
+  }
+  if(code===3){// Overcast / cloud
+    return(
+      <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={style}>
+        <path d="M10 30 Q10 22 18 22 Q18 14 28 14 Q38 14 38 24 Q44 24 44 30 Q44 36 38 36 H10 Q10 36 10 30Z" stroke={c} strokeWidth={sw*1.6} strokeLinejoin="round"/>
+      </svg>
+    );
+  }
+  if(code>=51&&code<=65||code===80||code===81||code===82){// Rain
+    const drops=code>=63?4:code>=61?3:2;
+    return(
+      <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={style}>
+        <path d="M8 24 Q8 16 16 16 Q16 8 26 8 Q36 8 36 18 Q42 18 42 24 Q42 30 36 30 H8 Q8 30 8 24Z" stroke={c} strokeWidth={sw*1.5} strokeLinejoin="round"/>
+        {Array.from({length:drops}).map((_,i)=>(
+          <line key={i} x1={14+i*7} y1="35" x2={12+i*7} y2="43" stroke={c} strokeWidth={sw*1.6} strokeLinecap="round"/>
+        ))}
+      </svg>
+    );
+  }
+  if(code===45||code===48){// Fog
+    return(
+      <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={style}>
+        {[14,22,30,38].map((y,i)=>(
+          <line key={i} x1={i%2===0?8:12} y1={y} x2={i%2===0?40:36} y2={y} stroke={c} strokeWidth={sw*1.6} strokeLinecap="round" opacity={1-i*0.15}/>
+        ))}
+      </svg>
+    );
+  }
+  if(code>=71&&code<=75){// Snow
+    return(
+      <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={style}>
+        <path d="M8 20 Q8 12 16 12 Q16 4 26 4 Q36 4 36 14 Q42 14 42 20 Q42 26 36 26 H8Z" stroke={c} strokeWidth={sw*1.5} strokeLinejoin="round"/>
+        {[14,22,30].map((x,i)=>[
+          <circle key={`c${i}`} cx={x} cy={36} r={sw*1.2} fill={c}/>,
+          <circle key={`d${i}`} cx={x} cy={43} r={sw*1.2} fill={c}/>,
+        ])}
+      </svg>
+    );
+  }
+  if(code>=95){// Thunder
+    return(
+      <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={style}>
+        <path d="M8 22 Q8 14 16 14 Q16 6 26 6 Q36 6 36 16 Q42 16 42 22 Q42 28 36 28 H8Z" stroke={c} strokeWidth={sw*1.5} strokeLinejoin="round"/>
+        <polyline points="28,30 22,39 26,39 20,48" stroke={c} strokeWidth={sw*1.8} strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    );
+  }
+  // Default: cloud
+  return(
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={style}>
+      <path d="M10 30 Q10 22 18 22 Q18 14 28 14 Q38 14 38 24 Q44 24 44 30 Q44 36 38 36 H10Z" stroke={c} strokeWidth={sw*1.6} strokeLinejoin="round"/>
+    </svg>
+  );
+}
 
-    const SEV_COLOR = ["#f59e0b","#94a3b8","#38bdf8","#3b82f6","#6366f1","#8b5cf6"];
-    const DAYS   = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+// ── Interactive Temperature Line Graph ────────────────────────────────────────
+function TempLineGraph({hourly,riseMins,setMins,accentColor}){
+  const svgRef=useRef(null);
+  const [dragIdx,setDragIdx]=useState(null);
+  const [hoverInfo,setHoverInfo]=useState(null);
 
-    // ─── Utilities ───────────────────────────────────────────────────────────────
+  const W=360,H=120,PAD_L=0,PAD_R=0,PAD_T=20,PAD_B=28;
+  const plotW=W-PAD_L-PAD_R, plotH=H-PAD_T-PAD_B;
 
-    function timeToMins(str) {
-      if (!str) return 0;
-      const t = str.includes("T") ? str.split("T")[1] : str;
-      const [h, m] = t.split(":").map(Number);
-      return h * 60 + (m || 0);
-    }
-
-    function fmtTime(str) {
-      if (!str) return "—";
-      const t = str.includes("T") ? str.split("T")[1] : str;
-      const [h, m] = t.split(":").map(Number);
-      return `${h % 12 || 12}:${String(m || 0).padStart(2,"0")}${h >= 12 ? "pm" : "am"}`;
-    }
-
-    function lerpHex(a, b, t) {
-      const p = s => parseInt(s.replace("#",""), 16);
-      const ai = p(a), bi = p(b);
-      const r  = Math.round(((ai>>16)&0xff)*(1-t)+((bi>>16)&0xff)*t);
-      const g  = Math.round(((ai>>8) &0xff)*(1-t)+((bi>>8) &0xff)*t);
-      const bl = Math.round(((ai)    &0xff)*(1-t)+((bi)    &0xff)*t);
-      return `#${r.toString(16).padStart(2,"0")}${g.toString(16).padStart(2,"0")}${bl.toString(16).padStart(2,"0")}`;
-    }
-
-    function skyGradient(nowMins, riseMins, setMins) {
-      const ph = [
-        { at: 0,                    top:"#03001e", bot:"#07052e" },
-        { at: riseMins - 80,        top:"#0d1b4b", bot:"#1a0a3e" },
-        { at: riseMins - 25,        top:"#6b21a8", bot:"#c0392b" },
-        { at: riseMins,             top:"#dc4f00", bot:"#f5a623" },
-        { at: riseMins + 50,        top:"#1565c0", bot:"#e65100" },
-        { at: riseMins + 120,       top:"#1565c0", bot:"#42a5f5" },
-        { at: (riseMins+setMins)/2, top:"#0d47a1", bot:"#1976d2" },
-        { at: setMins - 120,        top:"#1565c0", bot:"#42a5f5" },
-        { at: setMins - 45,         top:"#92140c", bot:"#f57f17" },
-        { at: setMins,              top:"#7b1a00", bot:"#e65100" },
-        { at: setMins + 40,         top:"#4a0a6b", bot:"#7b1a4f" },
-        { at: setMins + 100,        top:"#0d0621", bot:"#07052e" },
-        { at: 1440,                 top:"#03001e", bot:"#07052e" },
-      ];
-      let p1 = ph[0], p2 = ph[ph.length-1];
-      for (let i = 0; i < ph.length-1; i++) {
-        if (nowMins >= ph[i].at && nowMins < ph[i+1].at) { p1=ph[i]; p2=ph[i+1]; break; }
-      }
-      const t = p2.at===p1.at ? 0 : (nowMins-p1.at)/(p2.at-p1.at);
-      return { top: lerpHex(p1.top,p2.top,t), bot: lerpHex(p1.bot,p2.bot,t) };
-    }
-
-    // ─── Brand components ────────────────────────────────────────────────────────
-
-    function TempraIcon({ size = 32 }) {
-      const id = `ti_${size}`;
-      return (
-        <svg width={size} height={size} viewBox="0 0 64 64" style={{display:"block",flexShrink:0}}>
-          <defs>
-            <radialGradient id={`${id}_g1`} cx="40%" cy="30%" r="70%">
-              <stop offset="0%"   stopColor="#fde68a"/>
-              <stop offset="55%"  stopColor="#f97316"/>
-              <stop offset="100%" stopColor="#7b1a00"/>
-            </radialGradient>
-            <radialGradient id={`${id}_g2`} cx="50%" cy="50%" r="50%">
-              <stop offset="0%"   stopColor="rgba(255,255,255,0.18)"/>
-              <stop offset="100%" stopColor="rgba(255,255,255,0)"/>
-            </radialGradient>
-            <clipPath id={`${id}_c`}><rect width="64" height="64" rx="16"/></clipPath>
-          </defs>
-          <g clipPath={`url(#${id}_c)`}>
-            <rect width="64" height="64" fill={`url(#${id}_g1)`}/>
-            <rect width="64" height="64" fill={`url(#${id}_g2)`}/>
-            <line x1="10" y1="42" x2="54" y2="42" stroke="rgba(255,255,255,0.22)" strokeWidth="1"/>
-            <path d="M 10 42 Q 32 12 54 42" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="1.5" strokeDasharray="3 4"/>
-            <circle cx="32" cy="26" r="8"  fill="rgba(255,255,255,0.95)"/>
-            <circle cx="32" cy="26" r="13" fill="rgba(255,255,255,0.10)"/>
-          </g>
-        </svg>
-      );
-    }
-
-    function TempraWordmark({ size = "sm" }) {
-      const fs = size === "lg" ? 36 : 22;
-      return (
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <TempraIcon size={size==="lg" ? 38 : 28}/>
-          <div>
-            <div className="tempra-shimmer" style={{
-              fontFamily:"'Cormorant Garamond',Georgia,serif",
-              fontSize:fs, fontWeight:300, letterSpacing:"-0.03em", lineHeight:1,
-            }}>
-              tempra
-            </div>
-            {size === "lg" && (
-              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,letterSpacing:"0.3em",textTransform:"uppercase",color:"rgba(255,255,255,0.35)",marginTop:3}}>
-                Read the sky.
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // ─── Primitives ──────────────────────────────────────────────────────────────
-
-    function SLabel({ children }) {
-      return (
-        <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,letterSpacing:"0.28em",textTransform:"uppercase",color:"rgba(255,255,255,0.3)",margin:"0 0 10px",fontWeight:700}}>
-          {children}
-        </p>
-      );
-    }
-
-    function StatRow({ items }) {
-      const filtered = items.filter(Boolean);
-      return (
-        <div style={{display:"flex",background:"rgba(255,255,255,0.05)",borderRadius:12,overflow:"hidden"}}>
-          {filtered.map(([l,v],i) => (
-            <div key={l} style={{flex:1,padding:"10px 8px",textAlign:"center",borderRight:i<filtered.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
-              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,letterSpacing:"0.2em",textTransform:"uppercase",color:"rgba(255,255,255,0.35)"}}>{l}</div>
-              <div style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,marginTop:3,color:"#fff"}}>{v}</div>
-            </div>
-          ))}
-        </div>
-      );
-    }
-
-    // ─── TempBar ─────────────────────────────────────────────────────────────────
-
-    function TempBar({ min, max, weekMin, weekMax, isToday }) {
-      const span  = weekMax - weekMin || 1;
-      const left  = ((min - weekMin) / span) * 100;
-      const width = Math.max(((max - min) / span) * 100, 8);
-      return (
-        <div style={{position:"relative",height:5,borderRadius:99,background:"rgba(255,255,255,0.08)",overflow:"hidden"}}>
-          <div style={{
-            position:"absolute",left:`${left}%`,width:`${width}%`,height:"100%",borderRadius:99,
-            background: isToday ? "linear-gradient(90deg,#38bdf8,#f97316)" : "linear-gradient(90deg,#60a5fa,#fb923c)",
-            opacity: isToday ? 1 : 0.55,
-            transition:"all 0.8s cubic-bezier(.4,0,.2,1)",
-          }}/>
-        </div>
-      );
-    }
-
-    // ─── HourlyScroll ────────────────────────────────────────────────────────────
-
-    function HourlyScroll({ hourly, dateStr }) {
-      if (!hourly) return null;
-      const now = new Date();
-      const items = [];
-      for (let i = 0; i < hourly.time.length && items.length < 18; i++) {
-        const t = new Date(hourly.time[i]);
-        if (dateStr ? !hourly.time[i].startsWith(dateStr) : t < now) continue;
-        items.push({
-          time: t.toLocaleTimeString("en-AU",{hour:"numeric",hour12:true}),
-          temp: Math.round(hourly.temperature_2m[i]),
-          rain: Math.round(hourly.precipitation_probability?.[i] || 0),
-          code: hourly.weathercode[i],
+  // Build today's slots
+  const slots=useMemo(()=>{
+    if(!hourly)return[];
+    const today=new Date().toISOString().slice(0,10);
+    const result=[];
+    for(let i=0;i<hourly.time.length;i++){
+      if(hourly.time[i].startsWith(today)){
+        result.push({
+          mins:timeToMins(hourly.time[i]),
+          temp:Math.round(hourly.temperature_2m[i]),
+          feels:Math.round(hourly.apparent_temperature?.[i]??hourly.temperature_2m[i]),
+          rain:Math.round(hourly.precipitation_probability?.[i]||0),
+          code:hourly.weathercode[i],
+          timeStr:new Date(hourly.time[i]).toLocaleTimeString("en-AU",{hour:"numeric",hour12:true}),
         });
       }
-      if (!items.length) return null;
-      const maxT = Math.max(...items.map(x=>x.temp));
-      const minT = Math.min(...items.map(x=>x.temp));
-      return (
-        <div style={{overflowX:"auto",marginLeft:-4,marginRight:-4}}>
-          <div style={{display:"flex",gap:4,minWidth:"max-content",padding:"0 4px 4px"}}>
-            {items.map((item,i) => {
-              const frac = maxT===minT ? 0.5 : (item.temp-minT)/(maxT-minT);
-              const barH = Math.round(frac*40+12);
-              const isNow = !dateStr && i===0;
-              return (
-                <div key={i} style={{
-                  display:"flex",flexDirection:"column",alignItems:"center",gap:2,
-                  width:48,padding:"8px 3px 6px",borderRadius:12,
-                  background:isNow?"rgba(255,255,255,0.11)":"transparent",
-                  border:isNow?"1px solid rgba(255,255,255,0.14)":"1px solid transparent",
-                }}>
-                  <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(255,255,255,0.38)",letterSpacing:0.3}}>{item.time}</span>
-                  <span style={{fontSize:15}}>{getCode(item.code).icon}</span>
-                  <div style={{height:54,display:"flex",alignItems:"flex-end"}}>
-                    <div style={{width:18,height:barH,borderRadius:"3px 3px 0 0",background:"linear-gradient(to top,#0ea5e9,#bae6fd)",opacity:0.7}}/>
-                  </div>
-                  <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:15,color:"#fff"}}>{item.temp}°</span>
-                  {item.rain > 15
-                    ? <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"#7dd3fc"}}>{item.rain}%</span>
-                    : <span style={{opacity:0,fontSize:9}}>·</span>}
-                </div>
-              );
-            })}
+    }
+    return result;
+  },[hourly]);
+
+  if(!slots.length)return null;
+
+  const minTemp=Math.min(...slots.map(s=>Math.min(s.temp,s.feels)))-2;
+  const maxTemp=Math.max(...slots.map(s=>Math.max(s.temp,s.feels)))+2;
+  const tempRange=maxTemp-minTemp||1;
+
+  const xOf=i=>(i/(slots.length-1||1))*plotW+PAD_L;
+  const yOf=v=>PAD_T+plotH-(((v-minTemp)/tempRange)*plotH);
+
+  // Build smooth SVG path from points
+  function smoothPath(points){
+    if(points.length<2)return"";
+    let d=`M ${points[0].x} ${points[0].y}`;
+    for(let i=1;i<points.length;i++){
+      const cp=0.35;
+      const x1=points[i-1].x+(points[i].x-points[i-1].x)*cp;
+      const y1=points[i-1].y;
+      const x2=points[i].x-(points[i].x-points[i-1].x)*cp;
+      const y2=points[i].y;
+      d+=` C ${x1} ${y1} ${x2} ${y2} ${points[i].x} ${points[i].y}`;
+    }
+    return d;
+  }
+
+  const tempPts=slots.map((s,i)=>({x:xOf(i),y:yOf(s.temp)}));
+  const feelsPts=slots.map((s,i)=>({x:xOf(i),y:yOf(s.feels)}));
+  const tempPath=smoothPath(tempPts);
+  const feelsPath=smoothPath(feelsPts);
+
+  // Sunrise / sunset x positions
+  const minsStart=slots[0].mins, minsEnd=slots[slots.length-1].mins;
+  const minsSpan=minsEnd-minsStart||1;
+  const sunriseX=((riseMins-minsStart)/minsSpan)*plotW+PAD_L;
+  const sunsetX=((setMins-minsStart)/minsSpan)*plotW+PAD_L;
+  const showSunrise=sunriseX>=0&&sunriseX<=W;
+  const showSunset=sunsetX>=0&&sunsetX<=W;
+
+  // Interaction
+  function getIdxFromX(clientX,rect){
+    const svgX=(clientX-rect.left)*(W/rect.width)-PAD_L;
+    const pct=Math.max(0,Math.min(1,svgX/plotW));
+    return Math.round(pct*(slots.length-1));
+  }
+  function handleMove(e){
+    const rect=svgRef.current?.getBoundingClientRect();
+    if(!rect)return;
+    const clientX=e.touches?e.touches[0].clientX:e.clientX;
+    const idx=getIdxFromX(clientX,rect);
+    setDragIdx(idx);
+    setHoverInfo(slots[idx]);
+  }
+  function handleEnd(){setDragIdx(null);setHoverInfo(null);}
+
+  const activeIdx=dragIdx!==null?dragIdx:null;
+  const activeSlot=activeIdx!==null?slots[activeIdx]:null;
+
+  return(
+    <div style={{position:"relative",width:"100%",touchAction:"pan-y",userSelect:"none"}}>
+      {/* Tooltip */}
+      {activeSlot&&(
+        <div style={{
+          position:"absolute",top:0,left:Math.max(10,Math.min(xOf(activeIdx)-50,W-110))+"px",
+          background:"rgba(0,0,0,0.75)",backdropFilter:"blur(8px)",
+          border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,
+          padding:"7px 12px",zIndex:10,pointerEvents:"none",
+          color:"#fff",fontSize:12,lineHeight:1.6,
+        }}>
+          <div style={{fontWeight:600,fontSize:13}}>{activeSlot.timeStr}</div>
+          <div>Temp: <strong>{activeSlot.temp}°</strong></div>
+          <div style={{color:"#93c5fd"}}>Feels: <strong>{activeSlot.feels}°</strong></div>
+          {activeSlot.rain>0&&<div style={{color:"#7dd3fc"}}>Rain: {activeSlot.rain}%</div>}
+        </div>
+      )}
+
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        style={{width:"100%",display:"block",cursor:"crosshair",overflow:"visible"}}
+        onMouseMove={handleMove} onMouseLeave={handleEnd}
+        onTouchMove={e=>{e.preventDefault();handleMove(e);}} onTouchEnd={handleEnd}
+      >
+        <defs>
+          <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={accentColor} stopOpacity="0.3"/>
+            <stop offset="100%" stopColor={accentColor} stopOpacity="0.0"/>
+          </linearGradient>
+          <clipPath id="graphClip"><rect x={PAD_L} y={PAD_T} width={plotW} height={plotH}/></clipPath>
+        </defs>
+
+        {/* Day/night shading */}
+        {showSunrise&&(
+          <rect x={PAD_L} y={PAD_T} width={Math.max(0,sunriseX-PAD_L)} height={plotH}
+            fill="rgba(0,0,0,0.25)" rx="0"/>
+        )}
+        {showSunset&&(
+          <rect x={sunsetX} y={PAD_T} width={Math.max(0,W-PAD_R-sunsetX)} height={plotH}
+            fill="rgba(0,0,0,0.25)" rx="0"/>
+        )}
+
+        {/* Area fill under temp */}
+        <path
+          d={tempPath+` L ${tempPts[tempPts.length-1].x} ${PAD_T+plotH} L ${PAD_L} ${PAD_T+plotH} Z`}
+          fill="url(#tempGrad)" clipPath="url(#graphClip)"
+        />
+
+        {/* Feels-like line (dashed, muted) */}
+        <path d={feelsPath} fill="none" stroke="rgba(147,197,253,0.5)" strokeWidth="1.5"
+          strokeDasharray="4 3" clipPath="url(#graphClip)"/>
+
+        {/* Temp line */}
+        <path d={tempPath} fill="none" stroke={accentColor} strokeWidth="2"
+          strokeLinecap="round" clipPath="url(#graphClip)"/>
+
+        {/* Sunrise marker */}
+        {showSunrise&&sunriseX>PAD_L&&sunriseX<W-PAD_R&&(
+          <g>
+            <line x1={sunriseX} y1={PAD_T} x2={sunriseX} y2={PAD_T+plotH}
+              stroke="#f97316" strokeWidth="1" strokeDasharray="3 3" opacity="0.7"/>
+            <text x={Math.min(sunriseX+3,W-40)} y={PAD_T+12} fill="#f97316" fontSize="9"
+              fontFamily="Inter,sans-serif" opacity="0.9">sunrise</text>
+          </g>
+        )}
+        {/* Sunset marker */}
+        {showSunset&&sunsetX>PAD_L&&sunsetX<W-PAD_R&&(
+          <g>
+            <line x1={sunsetX} y1={PAD_T} x2={sunsetX} y2={PAD_T+plotH}
+              stroke="#f97316" strokeWidth="1" strokeDasharray="3 3" opacity="0.7"/>
+            <text x={Math.max(sunsetX-38,PAD_L)} y={PAD_T+12} fill="#f97316" fontSize="9"
+              fontFamily="Inter,sans-serif" opacity="0.9">sunset</text>
+          </g>
+        )}
+
+        {/* Hour labels on x-axis */}
+        {slots.filter((_,i)=>i%3===0).map((s,i,arr)=>(
+          <text key={i} x={xOf(slots.indexOf(s))} y={H-6}
+            fill="rgba(255,255,255,0.3)" fontSize="8.5" textAnchor="middle"
+            fontFamily="Inter,sans-serif">{s.timeStr}</text>
+        ))}
+
+        {/* Temp labels */}
+        {slots.filter((_,i)=>i%3===0).map((s,i)=>(
+          <text key={i} x={xOf(slots.indexOf(s))} y={yOf(s.temp)-5}
+            fill="rgba(255,255,255,0.6)" fontSize="8.5" textAnchor="middle"
+            fontFamily="Inter,sans-serif">{s.temp}°</text>
+        ))}
+
+        {/* Drag indicator */}
+        {activeIdx!==null&&(
+          <g>
+            <line x1={xOf(activeIdx)} y1={PAD_T} x2={xOf(activeIdx)} y2={PAD_T+plotH}
+              stroke="rgba(255,255,255,0.4)" strokeWidth="1"/>
+            <circle cx={xOf(activeIdx)} cy={yOf(activeSlot.temp)} r="4"
+              fill={accentColor} stroke="#fff" strokeWidth="1.5"/>
+            <circle cx={xOf(activeIdx)} cy={yOf(activeSlot.feels)} r="3"
+              fill="#93c5fd" stroke="#fff" strokeWidth="1.5"/>
+          </g>
+        )}
+      </svg>
+
+      {/* Legend */}
+      <div style={{display:"flex",gap:14,justifyContent:"center",marginTop:2,padding:"0 12px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:"rgba(255,255,255,0.5)"}}>
+          <div style={{width:16,height:2,background:accentColor,borderRadius:1}}/>Temp
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:"rgba(255,255,255,0.5)"}}>
+          <div style={{width:16,height:2,background:"rgba(147,197,253,0.6)",borderRadius:1,borderTop:"1px dashed rgba(147,197,253,0.6)"}}/>Feels like
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:"rgba(255,255,255,0.4)"}}>
+          <div style={{width:10,height:10,background:"rgba(0,0,0,0.25)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:2}}/>Night
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Hourly Icon Scroll (top of simple view) ───────────────────────────────────
+function HourlyIconRow({hourly,accentColor}){
+  if(!hourly)return null;
+  const now=new Date();
+  const today=now.toISOString().slice(0,10);
+  const items=[];
+  for(let i=0;i<hourly.time.length&&items.length<10;i++){
+    if(!hourly.time[i].startsWith(today))continue;
+    const t=new Date(hourly.time[i]);
+    if(t<now&&items.length===0)continue;// skip past hours until we have current
+    items.push({
+      time:t.toLocaleTimeString("en-AU",{hour:"numeric",hour12:true}),
+      temp:Math.round(hourly.temperature_2m[i]),
+      code:hourly.weathercode[i],
+      rain:Math.round(hourly.precipitation_probability?.[i]||0),
+      isCurrent:items.length===0,
+    });
+  }
+  return(
+    <div style={{overflowX:"auto",padding:"0 18px"}}>
+      <div style={{display:"flex",gap:0,minWidth:"max-content"}}>
+        {items.map((item,i)=>(
+          <div key={i} style={{
+            display:"flex",flexDirection:"column",alignItems:"center",gap:5,
+            padding:"10px 14px",borderRadius:14,minWidth:64,
+            background:item.isCurrent?"rgba(255,255,255,0.1)":"transparent",
+            border:item.isCurrent?"1px solid rgba(255,255,255,0.15)":"1px solid transparent",
+          }}>
+            <span style={{fontSize:11,fontWeight:item.isCurrent?600:400,color:item.isCurrent?"#fff":"rgba(255,255,255,0.45)"}}>
+              {item.isCurrent?"Now":item.time}
+            </span>
+            <WeatherIcon code={item.code} size={28} color={item.isCurrent?"#fff":"rgba(255,255,255,0.5)"}/>
+            <span style={{fontSize:13,fontWeight:600,color:item.isCurrent?"#fff":"rgba(255,255,255,0.6)"}}>
+              {item.temp}°
+            </span>
+            {item.rain>20&&(
+              <span style={{fontSize:9,color:"#7dd3fc",fontWeight:500}}>{item.rain}%</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Simple Day Row for 7-day ──────────────────────────────────────────────────
+function DayRow({date,data,weekMin,weekMax}){
+  const [open,setOpen]=useState(false);
+  const code=getCode(data.code);
+  return(
+    <div style={{borderRadius:14,overflow:"hidden",background:open?"rgba(255,255,255,0.08)":"rgba(255,255,255,0.04)",border:`1px solid rgba(255,255,255,${open?0.12:0.05})`,transition:"all .2s"}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{
+        width:"100%",background:"none",border:"none",padding:"13px 16px",
+        display:"flex",alignItems:"center",gap:12,color:"#fff",textAlign:"left",
+      }}>
+        <WeatherIcon code={data.code} size={28} color="rgba(255,255,255,0.75)"/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:7}}>
+            <span style={{fontSize:15,fontWeight:500,color:"#fff"}}>{DAYS[date.getDay()]}</span>
+            <span style={{fontSize:11,color:"rgba(255,255,255,0.35)"}}>{date.getDate()} {MONTHS_SHORT[date.getMonth()]}</span>
+          </div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.45)",marginTop:2,fontStyle:"italic"}}>{code.label}</div>
+          {/* Temp range bar */}
+          <div style={{marginTop:7,height:4,borderRadius:99,background:"rgba(255,255,255,0.08)",overflow:"hidden"}}>
+            <div style={{
+              marginLeft:`${((data.min-(weekMin-1))/((weekMax+1)-(weekMin-1))*100).toFixed(1)}%`,
+              width:`${Math.max(8,((data.max-data.min)/((weekMax+1)-(weekMin-1))*100)).toFixed(1)}%`,
+              height:"100%",borderRadius:99,
+              background:"linear-gradient(90deg,#60a5fa,#f97316)",opacity:0.65,
+            }}/>
           </div>
         </div>
-      );
-    }
-
-    // ─── SunArc ──────────────────────────────────────────────────────────────────
-
-    function SunArc({ riseMins, setMins, nowMins }) {
-      const W=300, H=76, pad=18;
-      const pt = p => ({ x: pad+p*(W-2*pad), y: H-Math.sin(Math.PI*p)*H });
-      const pct = Math.max(0,Math.min(1,(nowMins-riseMins)/(setMins-riseMins)));
-      const sun = pt(pct);
-      const isDay = nowMins>=riseMins && nowMins<=setMins;
-      let d = `M ${pad} ${H}`;
-      for (let i=0;i<=50;i++) { const p=pt(i/50); d+=` L ${p.x} ${p.y}`; }
-      return (
-        <svg viewBox={`0 0 ${W} ${H+16}`} style={{width:"100%",maxWidth:310,display:"block",margin:"0 auto"}}>
-          <defs>
-            <linearGradient id="arcG" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%"   stopColor="#f97316" stopOpacity="0.1"/>
-              <stop offset="50%"  stopColor="#fde68a" stopOpacity="0.55"/>
-              <stop offset="100%" stopColor="#f97316" stopOpacity="0.1"/>
-            </linearGradient>
-          </defs>
-          <path d={d} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1.5" strokeDasharray="3 5"/>
-          <path d={d} fill="none" stroke="url(#arcG)" strokeWidth="2.5" strokeDasharray={`${pct*680} 9999`}/>
-          {isDay && <>
-            <circle cx={sun.x} cy={sun.y} r={12} fill="#fbbf24" opacity={0.15}/>
-            <circle cx={sun.x} cy={sun.y} r={7}  fill="#fde68a"/>
-          </>}
-          <text x={pad}     y={H+14} fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="middle" fontFamily="DM Sans,sans-serif">rise</text>
-          <text x={W-pad}   y={H+14} fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="end"    fontFamily="DM Sans,sans-serif">set</text>
-        </svg>
-      );
-    }
-
-    // ─── Milestones ──────────────────────────────────────────────────────────────
-
-    function Milestones({ sunriseStr, sunsetStr, uvMax, overnightLow }) {
-      const nowMins  = new Date().getHours()*60 + new Date().getMinutes();
-      const riseMins = timeToMins(sunriseStr);
-      const setMins  = timeToMins(sunsetStr);
-      const uvMins   = (riseMins+setMins)/2;
-      const uvH=Math.floor(uvMins/60), uvM=Math.round(uvMins%60);
-      const uvTime=`${uvH%12||12}:${String(uvM).padStart(2,"0")}${uvH>=12?"pm":"am"}`;
-      const items = [
-        { icon:"🌅", label:"Sunrise",       sub:"Golden hour begins", val:fmtTime(sunriseStr), mins:riseMins },
-        uvMax!=null && { icon:"🔆", label:`UV Index ${uvMax}`, sub:"Peak exposure", val:uvTime, mins:uvMins },
-        { icon:"🌇", label:"Sunset",        sub:"Golden hour ends",   val:fmtTime(sunsetStr),  mins:setMins  },
-        overnightLow!=null && { icon:"🌡️", label:"Overnight Low", sub:"Minimum temperature", val:`${overnightLow}°`, mins:1380 },
-      ].filter(Boolean);
-      return (
-        <div>
-          {items.map((m,i) => {
-            const past = m.mins < nowMins;
-            return (
-              <div key={i} style={{
-                display:"flex",alignItems:"center",gap:14,padding:"10px 0",
-                borderBottom:i<items.length-1?"1px solid rgba(255,255,255,0.05)":"none",
-                opacity:past?0.35:1,transition:"opacity 0.4s",
-              }}>
-                <div style={{
-                  width:40,height:40,borderRadius:12,flexShrink:0,
-                  background:past?"rgba(255,255,255,0.04)":"rgba(255,255,255,0.09)",
-                  border:`1px solid rgba(255,255,255,${past?0.05:0.14})`,
-                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
-                }}>{m.icon}</div>
-                <div style={{flex:1}}>
-                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,color:"#fff"}}>{m.label}</div>
-                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:1}}>{m.sub}</div>
-                </div>
-                <div style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:16,color:past?"rgba(255,255,255,0.3)":"#fff"}}>
-                  {m.val}
-                </div>
-              </div>
-            );
-          })}
+        <div style={{textAlign:"right",flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+            <span style={{fontSize:17,fontWeight:600,color:"#fff"}}>{data.max}°</span>
+            <span style={{fontSize:13,color:"rgba(255,255,255,0.38)"}}>{data.min}°</span>
+          </div>
+          {data.rainProb>10&&<div style={{fontSize:11,color:"#7dd3fc",marginTop:2}}>💧{data.rainProb}%</div>}
         </div>
-      );
-    }
-
-    // ─── RainPeriods ─────────────────────────────────────────────────────────────
-
-    function RainPeriods({ hourly }) {
-      if (!hourly) return null;
-      const now=new Date(), periods=[];
-      let inRain=false, cur=null;
-      for (let i=0;i<Math.min(48,hourly.time.length);i++) {
-        const t=new Date(hourly.time[i]);
-        if (t<now) continue;
-        const prob=hourly.precipitation_probability?.[i]||0;
-        const mm=hourly.precipitation?.[i]||0;
-        if (!inRain&&prob>40) { inRain=true; cur={start:t,prob,mm}; }
-        else if (inRain&&prob<=20) { periods.push({...cur,end:t}); inRain=false; cur=null; }
-        else if (inRain) { cur.mm+=mm; cur.prob=Math.max(cur.prob,prob); }
-      }
-      if (inRain&&cur) periods.push({...cur,end:null});
-      if (!periods.length) return (
-        <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,0.35)",margin:0}}>
-          No significant rain expected today ☀️
-        </p>
-      );
-      return (
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          {periods.map((p,i) => (
-            <div key={i} style={{display:"flex",alignItems:"center",gap:12}}>
-              <div style={{width:38,height:38,borderRadius:10,flexShrink:0,background:"rgba(56,189,248,0.1)",border:"1px solid rgba(56,189,248,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>💧</div>
-              <div style={{flex:1}}>
-                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,color:"#bae6fd"}}>
-                  {p.start.toLocaleTimeString("en-AU",{hour:"numeric",minute:"2-digit",hour12:true})}
-                  {p.end ? ` – ${p.end.toLocaleTimeString("en-AU",{hour:"numeric",minute:"2-digit",hour12:true})}` : " onwards"}
-                </div>
-                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.38)",marginTop:1}}>
-                  {p.prob}% chance{p.mm>0.1?` · ~${p.mm.toFixed(1)}mm`:""}
-                </div>
-              </div>
+        <span style={{fontSize:11,color:"rgba(255,255,255,0.25)",display:"inline-block",transform:open?"rotate(180deg)":"none",transition:"transform .25s",marginLeft:4}}>▾</span>
+      </button>
+      {open&&(
+        <div style={{padding:"0 16px 14px",borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",gap:0,background:"rgba(255,255,255,0.03)"}}>
+          {[["High",`${data.max}°`],["Low",`${data.min}°`],["Feels",`${data.feelsMax}°`],["Rain",`${data.rainProb}%`],data.rainMm>0&&["Total",`${data.rainMm.toFixed(1)}mm`]].filter(Boolean).map(([l,v],i,arr)=>(
+            <div key={l} style={{flex:1,padding:"10px 4px",textAlign:"center",borderRight:i<arr.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
+              <div style={{fontSize:9,letterSpacing:"0.18em",textTransform:"uppercase",color:"rgba(255,255,255,0.3)",marginBottom:3}}>{l}</div>
+              <div style={{fontSize:17,fontWeight:600,color:"#fff"}}>{v}</div>
             </div>
           ))}
         </div>
-      );
-    }
+      )}
+    </div>
+  );
+}
 
-    // ─── DayRow ──────────────────────────────────────────────────────────────────
+// ── Insights: Tile ────────────────────────────────────────────────────────────
+function InsightsTile({title,icon,children,span=1}){
+  return(
+    <div style={{
+      background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.09)",
+      borderRadius:18,padding:"14px 16px",gridColumn:`span ${span}`,
+    }}>
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+        <span style={{fontSize:14}}>{icon}</span>
+        <span style={{fontSize:10,fontWeight:600,letterSpacing:"0.2em",textTransform:"uppercase",color:"rgba(255,255,255,0.4)"}}>{title}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
 
-    function DayRow({ date, data, hourly, weekMin, weekMax }) {
-      const [open, setOpen] = useState(false);
-      const code   = getCode(data.code);
-      const accent = SEV_COLOR[code.severity] || "#38bdf8";
-      const dateStr = date.toISOString().slice(0,10);
+// ── Insights: Air Quality ─────────────────────────────────────────────────────
+function AirQualityTile({aqi}){
+  if(!aqi)return(
+    <InsightsTile title="Air Quality" icon="💨">
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.3)"}}>Not available</div>
+    </InsightsTile>
+  );
+  const idx=Math.min(4,Math.max(0,aqi-1));
+  const label=AQI_LABELS[idx];
+  const color=AQI_COLORS[idx];
+  const pct=((aqi/5)*100);
+  return(
+    <InsightsTile title="Air Quality" icon="💨">
+      <div style={{fontSize:26,fontWeight:700,color,lineHeight:1}}>{label}</div>
+      <div style={{fontSize:11,color:"rgba(255,255,255,0.4)",marginTop:3}}>European AQI index</div>
+      <div style={{marginTop:10,height:4,borderRadius:99,background:"rgba(255,255,255,0.08)",overflow:"hidden"}}>
+        <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:99}}/>
+      </div>
+    </InsightsTile>
+  );
+}
 
-      const dayHourly = hourly ? (() => {
-        const idx = hourly.time.map((t,i)=>t.startsWith(dateStr)?i:-1).filter(i=>i>=0);
-        if (!idx.length) return null;
-        return {
-          time:                      idx.map(i=>hourly.time[i]),
-          temperature_2m:            idx.map(i=>hourly.temperature_2m[i]),
-          apparent_temperature:      idx.map(i=>hourly.apparent_temperature[i]),
-          precipitation_probability: idx.map(i=>hourly.precipitation_probability?.[i]||0),
-          precipitation:             idx.map(i=>hourly.precipitation?.[i]||0),
-          weathercode:               idx.map(i=>hourly.weathercode[i]),
-        };
-      })() : null;
-
-      return (
-        <div style={{
-          borderRadius:18,overflow:"hidden",
-          background:open?"rgba(255,255,255,0.09)":"rgba(255,255,255,0.04)",
-          border:`1px solid rgba(255,255,255,${open?0.12:0.06})`,
-          transition:"background 0.25s,border 0.25s",
-        }}>
-          <button onClick={()=>setOpen(o=>!o)} style={{
-            width:"100%",background:"none",border:"none",
-            padding:"13px 16px",display:"flex",alignItems:"center",gap:14,
-            color:"#fff",textAlign:"left",position:"relative",
-          }}>
-            <div style={{position:"absolute",left:0,top:"20%",bottom:"20%",width:3,borderRadius:99,background:accent,opacity:0.7}}/>
-            <span style={{fontSize:26,flexShrink:0,marginLeft:6}}>{code.icon}</span>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{display:"flex",alignItems:"baseline",gap:7}}>
-                <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:18,color:"#fff"}}>{DAYS[date.getDay()]}</span>
-                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.35)"}}>{date.getDate()} {MONTHS[date.getMonth()]}</span>
-              </div>
-              <div style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:13,fontStyle:"italic",color:"rgba(255,255,255,0.5)",marginTop:1}}>{code.label}</div>
-              <div style={{marginTop:6,paddingRight:4}}>
-                <TempBar min={data.min} max={data.max} weekMin={weekMin} weekMax={weekMax}/>
-              </div>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0}}>
-              <div style={{display:"flex",alignItems:"baseline",gap:6}}>
-                <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:24,color:"#fff"}}>{data.max}°</span>
-                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,color:"rgba(255,255,255,0.35)"}}>{data.min}°</span>
-              </div>
-              {data.rainProb>10 && <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"#7dd3fc"}}>💧 {data.rainProb}%</span>}
-            </div>
-            <span style={{fontSize:11,color:"rgba(255,255,255,0.25)",flexShrink:0,marginLeft:4,display:"inline-block",transform:open?"rotate(180deg)":"none",transition:"transform 0.25s"}}>▾</span>
-          </button>
-
-          {open && (
-            <div style={{padding:"0 16px 18px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
-              {dayHourly && (
-                <div style={{marginTop:14}}>
-                  <SLabel>Hourly</SLabel>
-                  <HourlyScroll hourly={dayHourly} dateStr={dateStr}/>
-                </div>
-              )}
-              <div style={{marginTop:14}}>
-                <SLabel>Temperature</SLabel>
-                <StatRow items={[["High",`${data.max}°`],["Low",`${data.min}°`],["Feels",`${data.feelsMax}°`]]}/>
-              </div>
-              <div style={{marginTop:10}}>
-                <SLabel>Rain</SLabel>
-                <StatRow items={[["Chance",`${data.rainProb}%`],["Total",`${data.rainMm.toFixed(1)}mm`],data.rainHours>0&&["Hours",`${data.rainHours}h`]]}/>
-              </div>
-            </div>
-          )}
+// ── Insights: AI Summary ──────────────────────────────────────────────────────
+function AIInsightsTile({summary,loading}){
+  return(
+    <InsightsTile title="Tempra Insights" icon="✦" span={2}>
+      {loading?(
+        <div style={{display:"flex",alignItems:"center",gap:8,color:"rgba(255,255,255,0.4)",fontSize:13}}>
+          <div style={{width:14,height:14,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#6366f1",borderRadius:"50%",animation:"spin .8s linear infinite"}}/>
+          Generating insights…
         </div>
-      );
-    }
+      ):summary?(
+        <div style={{fontSize:13,lineHeight:1.7,color:"rgba(255,255,255,0.75)"}}>{summary}</div>
+      ):(
+        <div style={{fontSize:12,color:"rgba(255,255,255,0.3)"}}>Insights unavailable</div>
+      )}
+    </InsightsTile>
+  );
+}
 
-    // ─── App ─────────────────────────────────────────────────────────────────────
-
-    function App() {
-      const [city,    setCity]    = useState(CITIES[0]);
-      const [weather, setWeather] = useState(null);
-      const [loading, setLoading] = useState(true);
-      const [tab,     setTab]     = useState("forecast");
-      const [now,     setNow]     = useState(new Date());
-
-      useEffect(() => {
-        const id = setInterval(() => setNow(new Date()), 60000);
-        return () => clearInterval(id);
-      }, []);
-
-      const fetchWeather = useCallback(async (c) => {
-        setLoading(true);
-        try {
-          const res = await fetch(
-            `https://api.open-meteo.com/v1/forecast` +
-            `?latitude=${c.lat}&longitude=${c.lon}` +
-            `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weathercode,windspeed_10m,precipitation` +
-            `&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weathercode` +
-            `&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max,` +
-            `precipitation_sum,precipitation_probability_max,precipitation_hours,sunrise,sunset,uv_index_max` +
-            `&timezone=${c.tz}&forecast_days=7`
+// ── Insights: 10-Day Tiles ────────────────────────────────────────────────────
+function TenDayTiles({daily}){
+  if(!daily)return null;
+  return(
+    <div style={{overflowX:"auto",padding:"0 2px"}}>
+      <div style={{display:"flex",gap:8,minWidth:"max-content"}}>
+        {daily.time.map((d,i)=>{
+          const date=new Date(d+"T00:00:00");
+          const code=getCode(daily.weathercode[i]);
+          const isToday=i===0;
+          return(
+            <div key={i} style={{
+              minWidth:90,borderRadius:14,padding:"12px 10px",textAlign:"center",
+              background:isToday?"rgba(255,255,255,0.12)":"rgba(255,255,255,0.05)",
+              border:`1px solid rgba(255,255,255,${isToday?0.18:0.06})`,
+              display:"flex",flexDirection:"column",alignItems:"center",gap:6,
+            }}>
+              <div style={{fontSize:11,fontWeight:isToday?600:400,color:isToday?"#fff":"rgba(255,255,255,0.55)"}}>
+                {isToday?"Today":DAYS[date.getDay()].slice(0,3)}
+              </div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.3)"}}>{date.getDate()} {MONTHS_SHORT[date.getMonth()]}</div>
+              <WeatherIcon code={daily.weathercode[i]} size={32} color={isToday?"#fff":"rgba(255,255,255,0.6)"}/>
+              <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{Math.round(daily.temperature_2m_max[i])}°</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.38)"}}>{Math.round(daily.temperature_2m_min[i])}°</div>
+              {(daily.precipitation_probability_max[i]||0)>15&&(
+                <div style={{fontSize:10,color:"#7dd3fc"}}>💧{daily.precipitation_probability_max[i]}%</div>
+              )}
+            </div>
           );
-          setWeather(await res.json());
-        } catch(e) { console.error("Tempra:", e); }
-        setLoading(false);
-      }, []);
+        })}
+      </div>
+    </div>
+  );
+}
 
-      useEffect(() => { fetchWeather(city); }, [city]);
+// ── Main App ──────────────────────────────────────────────────────────────────
+function App(){
+  const [city,setCity]=useState(()=>{
+    try{const s=localStorage.getItem("tempra_city");return CITIES.find(c=>c.name===s)||CITIES[0];}catch{return CITIES[0];}
+  });
+  const [weather,setWeather]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [insightsMode,setInsightsMode]=useState(false);
+  const [aiSummary,setAiSummary]=useState(null);
+  const [aiLoading,setAiLoading]=useState(false);
+  const [aqi,setAqi]=useState(null);
+  const [now,setNow]=useState(new Date());
 
-      const cur    = weather?.current;
-      const daily  = weather?.daily;
-      const hourly = weather?.hourly;
+  useEffect(()=>{const id=setInterval(()=>setNow(new Date()),30000);return()=>clearInterval(id);},[]);
 
-      const sunriseStr = daily?.sunrise?.[0];
-      const sunsetStr  = daily?.sunset?.[0];
-      const riseMins   = timeToMins(sunriseStr) || 360;
-      const setMins    = timeToMins(sunsetStr)  || 1140;
-      const nowMins    = now.getHours()*60 + now.getMinutes();
-      const { top, bot } = skyGradient(nowMins, riseMins, setMins);
-      const isNight = nowMins < riseMins || nowMins > setMins;
-      const weekMin = daily ? Math.min(...daily.temperature_2m_min) : 0;
-      const weekMax = daily ? Math.max(...daily.temperature_2m_max) : 30;
+  const fetchWeather=useCallback(async(c)=>{
+    setLoading(true);setWeather(null);
+    try{
+      const res=await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`+
+        `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weathercode,windspeed_10m,precipitation`+
+        `&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weathercode`+
+        `&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max,`+
+        `precipitation_sum,precipitation_probability_max,precipitation_hours,sunrise,sunset,uv_index_max`+
+        `&timezone=${c.tz}&forecast_days=10`
+      );
+      const data=await res.json();
+      setWeather(data);
+      // Also fetch air quality
+      fetchAQI(c);
+    }catch(e){console.error("Tempra fetch:",e);}
+    setLoading(false);
+  },[]);
 
-      return (
-        <div style={{minHeight:"100vh",background:`linear-gradient(172deg,${top} 0%,${bot} 100%)`,transition:"background 8s ease",paddingBottom:64}}>
+  const fetchAQI=async(c)=>{
+    try{
+      const res=await fetch(
+        `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${c.lat}&longitude=${c.lon}`+
+        `&current=european_aqi&timezone=${c.tz}`
+      );
+      const data=await res.json();
+      // european_aqi: 0-20 Good, 20-40 Fair, 40-60 Mod, 60-80 Poor, 80-100 Very Poor
+      const rawAqi=data?.current?.european_aqi;
+      if(rawAqi!=null){
+        const idx=rawAqi<=20?1:rawAqi<=40?2:rawAqi<=60?3:rawAqi<=80?4:5;
+        setAqi(idx);
+      }
+    }catch(e){console.warn("AQI fetch:",e);}
+  };
 
-          {/* Stars */}
-          {isNight && (
-            <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:0,overflow:"hidden"}}>
-              {Array.from({length:55}).map((_,i) => (
-                <div key={i} style={{
-                  position:"absolute",
-                  left:`${(i*137.508)%100}%`, top:`${(i*93.7)%70}%`,
-                  width:i%7===0?2:1, height:i%7===0?2:1,
-                  background:"#fff", borderRadius:"50%",
-                  opacity:0.15+((i*0.19)%0.6),
-                  animation:`twinkle ${2.2+(i%5)*0.7}s ${(i*0.41)%5}s ease-in-out infinite`,
-                }}/>
-              ))}
-            </div>
-          )}
+  useEffect(()=>{fetchWeather(city);},[city]);
+  useEffect(()=>{try{localStorage.setItem("tempra_city",city.name);}catch{}},[city]);
 
-          <div style={{position:"relative",zIndex:1}}>
+  // Generate AI insights when entering insights mode
+  useEffect(()=>{
+    if(!insightsMode||!weather||aiSummary)return;
+    generateAIInsights();
+  },[insightsMode,weather]);
 
-            {/* Header */}
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"20px 18px 0",flexWrap:"wrap",gap:12}}>
-              <TempraWordmark size="sm"/>
-              <div style={{position:"relative"}}>
-                <select value={city.name} onChange={e=>setCity(CITIES.find(c=>c.name===e.target.value))} style={{
-                  appearance:"none",WebkitAppearance:"none",
-                  background:"rgba(0,0,0,0.28)",backdropFilter:"blur(12px)",
-                  border:"1px solid rgba(255,255,255,0.14)",borderRadius:20,
-                  color:"#fff",padding:"8px 36px 8px 16px",fontSize:13,
-                  outline:"none",fontFamily:"'DM Sans',sans-serif",cursor:"pointer",
-                }}>
-                  {CITIES.map(c => <option key={c.name} value={c.name} style={{background:"#0f172a"}}>{c.name}</option>)}
-                </select>
-                <span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:10,color:"rgba(255,255,255,0.4)",pointerEvents:"none"}}>▾</span>
-              </div>
-            </div>
+  const generateAIInsights=async()=>{
+    if(!weather?.current||!weather?.daily)return;
+    setAiLoading(true);
+    try{
+      const cur=weather.current,daily=weather.daily;
+      const prompt=`You are Tempra, a friendly Australian weather assistant. Based on this data for ${city.name}, write a 2-3 sentence conversational insight about the day and week ahead. Be specific, practical, and warm. Today: ${Math.round(cur.temperature_2m)}°C, feels like ${Math.round(cur.apparent_temperature)}°C, ${getCode(cur.weathercode).label}. This week max temps: ${daily.temperature_2m_max.slice(0,7).map(t=>Math.round(t)+"°").join(", ")}. Rain chances: ${daily.precipitation_probability_max.slice(0,7).join("%, ")}%. UV max today: ${daily.uv_index_max?.[0]??'unknown'}. Write 2-3 sentences only, conversational tone, no bullet points.`;
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:200,
+          messages:[{role:"user",content:prompt}],
+        }),
+      });
+      const data=await res.json();
+      const text=data?.content?.[0]?.text;
+      if(text)setAiSummary(text);
+      else setAiSummary("Insights are unavailable right now — check back shortly.");
+    }catch(e){
+      console.warn("AI insights:",e);
+      setAiSummary("Insights are unavailable right now.");
+    }
+    setAiLoading(false);
+  };
 
-            {/* Loading */}
-            {loading && (
-              <div style={{textAlign:"center",padding:"120px 20px"}}>
-                <TempraIcon size={52}/>
-                <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:22,fontStyle:"italic",color:"rgba(255,255,255,0.4)",marginTop:18}}>
-                  Reading the sky…
-                </p>
-              </div>
-            )}
+  // Derived
+  const cur=weather?.current;
+  const daily=weather?.daily;
+  const hourly=weather?.hourly;
+  const sunriseStr=daily?.sunrise?.[0];
+  const sunsetStr=daily?.sunset?.[0];
+  const riseMins=timeToMins(sunriseStr)||360;
+  const setMins=timeToMins(sunsetStr)||1140;
+  const nowMins=now.getHours()*60+now.getMinutes();
+  const {top,bot}=skyGradient(nowMins,riseMins,setMins);
+  const isNight=nowMins<riseMins||nowMins>setMins;
+  const weekMin=daily?Math.min(...daily.temperature_2m_min.slice(0,7)):0;
+  const weekMax=daily?Math.max(...daily.temperature_2m_max.slice(0,7)):30;
 
-            {!loading && cur && daily && (
+  // Accent color — shifts with sky
+  const accentColor=isNight?"#818cf8":nowMins<riseMins+120||nowMins>setMins-60?"#f97316":"#38bdf8";
+
+  return(
+    <div style={{
+      minHeight:"100vh",
+      background:`linear-gradient(170deg,${top} 0%,${bot} 100%)`,
+      transition:"background 10s ease",
+      paddingBottom:80,
+    }}>
+
+      {/* Stars */}
+      {isNight&&(
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:0,overflow:"hidden"}}>
+          {Array.from({length:60}).map((_,i)=>(
+            <div key={i} style={{
+              position:"absolute",
+              left:`${(i*137.508)%100}%`,top:`${(i*93.7)%75}%`,
+              width:i%8===0?2:1,height:i%8===0?2:1,
+              background:"#fff",borderRadius:"50%",
+              opacity:.1+((i*.19)%.55),
+              animation:`twinkle ${2.2+(i%5)*.7}s ${(i*.41)%5}s ease-in-out infinite`,
+            }}/>
+          ))}
+        </div>
+      )}
+
+      <div style={{position:"relative",zIndex:1}}>
+
+        {/* ── Header ── */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"18px 18px 0",gap:10}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:600,letterSpacing:"0.3em",textTransform:"uppercase",color:"rgba(255,255,255,0.35)"}}>tempra</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.25)",marginTop:1}}>{fmtDateTimeNatural(now)}</div>
+          </div>
+          <select value={city.name} onChange={e=>{setCity(CITIES.find(c=>c.name===e.target.value));setAiSummary(null);}} style={{
+            appearance:"none",background:"rgba(0,0,0,0.25)",backdropFilter:"blur(12px)",
+            border:"1px solid rgba(255,255,255,0.14)",borderRadius:20,
+            color:"#fff",padding:"7px 14px",fontSize:12,outline:"none",cursor:"pointer",
+          }}>
+            {CITIES.map(c=><option key={c.name} value={c.name} style={{background:"#0f172a"}}>{c.name}</option>)}
+          </select>
+        </div>
+
+        {/* ── Loading ── */}
+        {loading&&(
+          <div style={{textAlign:"center",padding:"100px 20px"}}>
+            <div style={{width:36,height:36,border:`3px solid rgba(255,255,255,0.15)`,borderTopColor:accentColor,borderRadius:"50%",animation:"spin .9s linear infinite",margin:"0 auto"}}/>
+            <p style={{fontSize:14,color:"rgba(255,255,255,0.4)",marginTop:16}}>Reading the sky…</p>
+          </div>
+        )}
+
+        {!loading&&cur&&daily&&(
+          <div className="fade-in">
+
+            {/* ── SIMPLE VIEW ─────────────────────────────────────────────── */}
+            {!insightsMode&&(
               <>
-                {/* TODAY HERO */}
-                <div style={{margin:"18px 14px 0",background:"rgba(255,255,255,0.065)",backdropFilter:"blur(24px)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:26,overflow:"hidden"}}>
-
-                  {/* Sky strip */}
-                  <div style={{height:3,background:`linear-gradient(90deg,${top},${bot},${top})`,opacity:0.8}}/>
-
-                  {/* Temp block */}
-                  <div style={{padding:"22px 22px 18px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                      <div>
-                        <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,letterSpacing:"0.28em",textTransform:"uppercase",color:"rgba(255,255,255,0.35)",marginBottom:6}}>
-                          {now.toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long"})}
-                        </div>
-                        <div style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:96,fontWeight:300,lineHeight:1,letterSpacing:"-0.04em",color:"#fff"}}>
-                          {Math.round(cur.temperature_2m)}°
-                        </div>
-                        <div style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,fontStyle:"italic",fontWeight:300,color:"rgba(255,255,255,0.65)",marginTop:4}}>
-                          {getCode(cur.weathercode).label}
-                        </div>
-                        <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,0.38)",marginTop:6,lineHeight:1.8}}>
-                          Feels like {Math.round(cur.apparent_temperature)}°C<br/>
-                          {Math.round(daily.temperature_2m_min[0])}° – {Math.round(daily.temperature_2m_max[0])}° · Humidity {cur.relative_humidity_2m}%
-                        </div>
+                {/* Current conditions hero */}
+                <div style={{padding:"28px 22px 10px"}}>
+                  <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+                    <div>
+                      <div style={{fontSize:80,fontWeight:300,lineHeight:1,color:"#fff",letterSpacing:"-3px"}}>
+                        {Math.round(cur.temperature_2m)}°
                       </div>
-                      <div style={{fontSize:78,lineHeight:1,paddingTop:4,flexShrink:0}}>{getCode(cur.weathercode).icon}</div>
+                      <div style={{fontSize:16,color:"rgba(255,255,255,0.6)",marginTop:4,fontStyle:"italic"}}>
+                        {getCode(cur.weathercode).label}
+                      </div>
+                      <div style={{fontSize:13,color:"rgba(255,255,255,0.4)",marginTop:6,lineHeight:1.8}}>
+                        Feels like {Math.round(cur.apparent_temperature)}°
+                        <span style={{margin:"0 8px",opacity:.4}}>·</span>
+                        {Math.round(daily.temperature_2m_min[0])}° – {Math.round(daily.temperature_2m_max[0])}°
+                      </div>
                     </div>
-
-                    {/* Stat pills */}
-                    <div style={{display:"flex",gap:8,marginTop:18,flexWrap:"wrap"}}>
-                      {[
-                        {icon:"💨",val:`${Math.round(cur.windspeed_10m)} km/h`,label:"wind"},
-                        {icon:"💧",val:`${daily.precipitation_probability_max[0]}%`,label:"rain"},
-                        {icon:"🔆",val:daily.uv_index_max?.[0]??"—",label:"UV"},
-                        {icon:"💦",val:`${cur.relative_humidity_2m}%`,label:"humid"},
-                      ].map(s => (
-                        <div key={s.label} style={{display:"flex",alignItems:"center",gap:5,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:99,padding:"5px 12px"}}>
-                          <span style={{fontSize:12}}>{s.icon}</span>
-                          <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"#fff",fontWeight:600}}>{s.val}</span>
-                          <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.35)"}}>{s.label}</span>
-                        </div>
-                      ))}
-                    </div>
+                    <WeatherIcon code={cur.weathercode} size={64} color="rgba(255,255,255,0.9)"/>
                   </div>
 
-                  {/* Sun arc */}
-                  <div style={{padding:"14px 22px 10px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.35)",marginBottom:4}}>
-                      <span>🌅 {fmtTime(sunriseStr)}</span>
-                      <span style={{letterSpacing:"0.15em",fontSize:10}}>{isNight?"NIGHT":"DAY"}</span>
-                      <span>🌇 {fmtTime(sunsetStr)}</span>
-                    </div>
-                    <SunArc riseMins={riseMins} setMins={setMins} nowMins={nowMins}/>
-                  </div>
-
-                  {/* Milestones */}
-                  <div style={{padding:"14px 22px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-                    <SLabel>Today's Milestones</SLabel>
-                    <Milestones
-                      sunriseStr={sunriseStr} sunsetStr={sunsetStr}
-                      uvMax={daily.uv_index_max?.[0]}
-                      overnightLow={daily.temperature_2m_min?.[1]!=null?Math.round(daily.temperature_2m_min[1]):null}
-                    />
-                  </div>
-
-                  {/* Hourly */}
-                  <div style={{padding:"14px 22px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-                    <SLabel>Hourly Forecast</SLabel>
-                    <HourlyScroll hourly={hourly}/>
-                  </div>
-
-                  {/* Rain periods */}
-                  <div style={{padding:"14px 22px 20px"}}>
-                    <SLabel>Rain Periods</SLabel>
-                    <RainPeriods hourly={hourly}/>
+                  {/* Stat pills */}
+                  <div style={{display:"flex",gap:7,marginTop:16,flexWrap:"wrap"}}>
+                    {[
+                      {label:`${Math.round(cur.windspeed_10m)} km/h`,icon:"💨"},
+                      {label:`${daily.precipitation_probability_max[0]}% rain`,icon:"💧"},
+                      {label:`UV ${daily.uv_index_max?.[0]??'—'}`,icon:"🔆"},
+                      {label:`${cur.relative_humidity_2m}% humid`,icon:"💦"},
+                    ].map((s,i)=>(
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:4,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:99,padding:"4px 11px",fontSize:12,color:"rgba(255,255,255,0.7)"}}>
+                        <span style={{fontSize:11}}>{s.icon}</span>{s.label}
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                {/* Tabs */}
-                <div style={{display:"flex",gap:6,padding:"14px 14px 10px"}}>
-                  {[["forecast","7-Day Forecast"],["rain","Rain & Radar"]].map(([id,lbl]) => (
-                    <button key={id} onClick={()=>setTab(id)} style={{
-                      padding:"8px 20px",borderRadius:20,border:"none",
-                      fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,letterSpacing:"0.04em",
-                      background:tab===id?"rgba(255,255,255,0.18)":"rgba(255,255,255,0.06)",
-                      color:tab===id?"#fff":"rgba(255,255,255,0.4)",
-                      backdropFilter:"blur(8px)",transition:"all 0.2s",
-                    }}>{lbl}</button>
+                {/* Hourly icon scroll */}
+                <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:20,margin:"10px 14px",padding:"4px 0 6px",overflow:"hidden"}}>
+                  <HourlyIconRow hourly={hourly} accentColor={accentColor}/>
+                </div>
+
+                {/* Interactive temp graph */}
+                <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:20,margin:"10px 14px",padding:"14px 12px 10px",overflow:"hidden"}}>
+                  <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.2em",textTransform:"uppercase",color:"rgba(255,255,255,0.3)",marginBottom:8,paddingLeft:4}}>
+                    Today's Temperature
+                  </div>
+                  <TempLineGraph hourly={hourly} riseMins={riseMins} setMins={setMins} accentColor={accentColor}/>
+                </div>
+
+                {/* Sunrise / Sunset strip */}
+                <div style={{display:"flex",justifyContent:"space-around",margin:"10px 14px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:16,padding:"12px 16px"}}>
+                  {[
+                    {icon:"🌅",label:"Sunrise",val:fmtMins(riseMins)},
+                    {icon:"🌇",label:"Sunset",val:fmtMins(setMins)},
+                    {icon:"🌙",label:"Daylength",val:(()=>{const h=Math.floor((setMins-riseMins)/60),m=(setMins-riseMins)%60;return `${h}h ${m}m`;})()},
+                  ].map((s,i)=>(
+                    <div key={i} style={{textAlign:"center"}}>
+                      <div style={{fontSize:18,marginBottom:3}}>{s.icon}</div>
+                      <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>{s.val}</div>
+                      <div style={{fontSize:10,color:"rgba(255,255,255,0.38)",marginTop:1}}>{s.label}</div>
+                    </div>
                   ))}
                 </div>
 
                 {/* 7-Day */}
-                {tab==="forecast" && (
-                  <div style={{display:"flex",flexDirection:"column",gap:6,padding:"0 14px"}}>
-                    {daily.time.slice(1).map((d,i) => (
+                <div style={{margin:"10px 14px"}}>
+                  <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.2em",textTransform:"uppercase",color:"rgba(255,255,255,0.3)",marginBottom:8,paddingLeft:4}}>
+                    7-Day Forecast
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                    {daily.time.slice(1,8).map((d,i)=>(
                       <DayRow key={i} date={new Date(d+"T00:00:00")}
                         data={{
-                          code:      daily.weathercode[i+1],
-                          max:       Math.round(daily.temperature_2m_max[i+1]),
-                          min:       Math.round(daily.temperature_2m_min[i+1]),
-                          feelsMax:  Math.round(daily.apparent_temperature_max[i+1]),
-                          rainProb:  daily.precipitation_probability_max[i+1],
-                          rainMm:    daily.precipitation_sum[i+1],
-                          rainHours: daily.precipitation_hours[i+1],
+                          code:daily.weathercode[i+1],
+                          max:Math.round(daily.temperature_2m_max[i+1]),
+                          min:Math.round(daily.temperature_2m_min[i+1]),
+                          feelsMax:Math.round(daily.apparent_temperature_max[i+1]),
+                          rainProb:daily.precipitation_probability_max[i+1],
+                          rainMm:daily.precipitation_sum[i+1],
                         }}
-                        hourly={hourly} weekMin={weekMin} weekMax={weekMax}
+                        weekMin={weekMin} weekMax={weekMax}
                       />
                     ))}
-                    <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(255,255,255,0.2)",textAlign:"center",letterSpacing:"0.1em",padding:"6px 0 0"}}>
-                      temperature range · weekly scale
-                    </p>
                   </div>
-                )}
-
-                {/* Rain & Radar */}
-                {tab==="rain" && (
-                  <div style={{padding:"0 14px",display:"flex",flexDirection:"column",gap:10}}>
-                    <div style={{background:"rgba(255,255,255,0.065)",backdropFilter:"blur(12px)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:20,padding:"16px 18px"}}>
-                      <SLabel>7-Day Rain Outlook</SLabel>
-                      {daily.time.map((d,i) => {
-                        const date=new Date(d+"T00:00:00");
-                        const pct=Math.min(100,daily.precipitation_probability_max[i]||0);
-                        const col=pct>70?"#38bdf8":pct>40?"#60a5fa":"#93c5fd";
-                        return (
-                          <div key={i} style={{marginBottom:14}}>
-                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-                              <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,color:i===0?"#bae6fd":"#fff"}}>
-                                {i===0?"Today":DAYS[date.getDay()]}
-                                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.32)",marginLeft:7}}>{date.getDate()} {MONTHS[date.getMonth()]}</span>
-                              </span>
-                              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,0.4)",display:"flex",gap:10}}>
-                                {daily.precipitation_sum[i]>0   && <span>{daily.precipitation_sum[i].toFixed(1)}mm</span>}
-                                {daily.precipitation_hours[i]>0 && <span>{daily.precipitation_hours[i]}h</span>}
-                              </div>
-                            </div>
-                            <div style={{display:"flex",alignItems:"center",gap:8}}>
-                              <div style={{flex:1,height:5,background:"rgba(255,255,255,0.08)",borderRadius:99,overflow:"hidden"}}>
-                                <div style={{width:`${pct}%`,height:"100%",background:col,borderRadius:99,transition:"width 0.8s ease"}}/>
-                              </div>
-                              <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:col,minWidth:28,textAlign:"right"}}>{pct}%</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div style={{background:"rgba(255,255,255,0.065)",backdropFilter:"blur(12px)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:20,padding:"16px 18px"}}>
-                      <SLabel>BOM Radar — {city.name}</SLabel>
-                      <div style={{borderRadius:14,overflow:"hidden",background:"#000d1a"}}>
-                        <iframe title="BOM Radar"
-                          src={`https://www.bom.gov.au/products/${city.radar}.loop.shtml`}
-                          style={{width:"100%",height:340,border:"none",display:"block"}}
-                          scrolling="no"/>
-                      </div>
-                      <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.28)",margin:"10px 0 0",textAlign:"center"}}>
-                        Bureau of Meteorology · <a href={`https://www.bom.gov.au/products/${city.radar}.loop.shtml`} target="_blank" rel="noopener noreferrer" style={{color:"#7dd3fc",textDecoration:"none"}}>Open full radar ↗</a>
-                      </p>
-                    </div>
+                  <div style={{fontSize:10,color:"rgba(255,255,255,0.18)",textAlign:"center",marginTop:6,letterSpacing:"0.08em"}}>
+                    temperature range · weekly scale · tap to expand
                   </div>
-                )}
-
-                {/* Footer */}
-                <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"32px 24px 0"}}>
-                  <TempraIcon size={18}/>
-                  <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:14,fontStyle:"italic",color:"rgba(255,255,255,0.2)",letterSpacing:"0.05em"}}>
-                    tempra · Read the sky.
-                  </span>
                 </div>
               </>
             )}
 
-            {/* Error */}
-            {!loading && !cur && (
-              <div style={{textAlign:"center",padding:"80px 20px"}}>
-                <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,fontStyle:"italic",color:"rgba(255,100,100,0.6)"}}>
-                  Couldn't read the sky right now.
-                </p>
-                <button onClick={()=>fetchWeather(city)} style={{marginTop:16,fontFamily:"'DM Sans',sans-serif",fontSize:13,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.14)",borderRadius:20,color:"#fff",padding:"8px 20px"}}>
-                  Try again
-                </button>
+            {/* ── INSIGHTS VIEW ────────────────────────────────────────────── */}
+            {insightsMode&&(
+              <div className="fade-in" style={{padding:"16px 14px 0"}}>
+                <div style={{fontSize:18,fontWeight:600,color:"#fff",marginBottom:4}}>Tempra Insights</div>
+                <div style={{fontSize:12,color:"rgba(255,255,255,0.4)",marginBottom:16}}>{fmtDateNatural(now)}</div>
+
+                {/* AI Insights */}
+                <div style={{marginBottom:12}}>
+                  <AIInsightsTile summary={aiSummary} loading={aiLoading}/>
+                </div>
+
+                {/* 10-Day tiles */}
+                <div style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:18,padding:"14px 12px",marginBottom:12}}>
+                  <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.2em",textTransform:"uppercase",color:"rgba(255,255,255,0.4)",marginBottom:10}}>
+                    ☁️ 10-Day Outlook
+                  </div>
+                  <TenDayTiles daily={daily}/>
+                </div>
+
+                {/* Grid: AQI + UV + Wind */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                  <AirQualityTile aqi={aqi}/>
+                  <InsightsTile title="UV Index" icon="🔆">
+                    <div style={{fontSize:32,fontWeight:700,color:daily.uv_index_max?.[0]>=8?"#ef4444":daily.uv_index_max?.[0]>=6?"#f97316":daily.uv_index_max?.[0]>=3?"#eab308":"#22c55e",lineHeight:1}}>
+                      {daily.uv_index_max?.[0]??'—'}
+                    </div>
+                    <div style={{fontSize:11,color:"rgba(255,255,255,0.4)",marginTop:3}}>
+                      {daily.uv_index_max?.[0]>=8?"Extreme — cover up":daily.uv_index_max?.[0]>=6?"High — SPF required":daily.uv_index_max?.[0]>=3?"Moderate":"Low"}
+                    </div>
+                  </InsightsTile>
+                  <InsightsTile title="Wind" icon="💨">
+                    <div style={{fontSize:26,fontWeight:700,color:"#fff",lineHeight:1}}>{Math.round(cur.windspeed_10m)}</div>
+                    <div style={{fontSize:11,color:"rgba(255,255,255,0.4)",marginTop:2}}>km/h</div>
+                  </InsightsTile>
+                  <InsightsTile title="Humidity" icon="💦">
+                    <div style={{fontSize:26,fontWeight:700,color:"#fff",lineHeight:1}}>{cur.relative_humidity_2m}%</div>
+                    <div style={{fontSize:11,color:"rgba(255,255,255,0.4)",marginTop:2}}>Relative</div>
+                  </InsightsTile>
+                </div>
+
+                {/* Pollen note */}
+                <div style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:18,padding:"14px 16px",marginBottom:12}}>
+                  <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.2em",textTransform:"uppercase",color:"rgba(255,255,255,0.4)",marginBottom:8}}>🌿 Pollen</div>
+                  <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",lineHeight:1.6}}>
+                    Real-time pollen data is available via IQAIR or Ambee APIs — add your API key in settings to enable this tile.
+                    <div style={{marginTop:6,fontSize:11,color:"rgba(255,255,255,0.3)"}}>Roadmap: pollen integration v1.1</div>
+                  </div>
+                </div>
+
+                {/* BOM Radar */}
+                <div style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:18,padding:"14px 16px",marginBottom:12}}>
+                  <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.2em",textTransform:"uppercase",color:"rgba(255,255,255,0.4)",marginBottom:10}}>📡 BOM Radar — {city.name}</div>
+                  <div style={{borderRadius:12,overflow:"hidden",background:"#000d1a"}}>
+                    <iframe title="BOM Radar"
+                      src={`https://www.bom.gov.au/products/${city.radar}.loop.shtml`}
+                      style={{width:"100%",height:300,border:"none",display:"block"}}
+                      scrolling="no"/>
+                  </div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.28)",marginTop:8,textAlign:"center"}}>
+                    Bureau of Meteorology ·{" "}
+                    <a href={`https://www.bom.gov.au/products/${city.radar}.loop.shtml`} target="_blank" rel="noopener noreferrer" style={{color:"#7dd3fc",textDecoration:"none"}}>Open full radar ↗</a>
+                  </div>
+                </div>
+
+                {/* Roadmap note */}
+                <div style={{background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.2)",borderRadius:14,padding:"12px 14px",marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:600,color:"rgba(99,102,241,0.9)",marginBottom:6}}>📋 Tempra Roadmap</div>
+                  <div style={{fontSize:12,color:"rgba(255,255,255,0.45)",lineHeight:1.7}}>
+                    · Branding review (name, icon, palette)<br/>
+                    · Pollen data integration (Ambee / IQAir API)<br/>
+                    · PWA / install to home screen<br/>
+                    · Push notifications for rain<br/>
+                    · Geolocation auto-detect<br/>
+                    · Vite build + GitHub Actions deploy<br/>
+                    · Tide data for coastal cities
+                  </div>
+                </div>
+
               </div>
             )}
 
           </div>
-        </div>
-      );
-    }
+        )}
 
-    // Mount
-    const root = ReactDOM.createRoot(document.getElementById("root"));
-    root.render(<App/>);
-  </script>
+        {/* Error */}
+        {!loading&&!cur&&(
+          <div style={{textAlign:"center",padding:"80px 20px"}}>
+            <p style={{fontSize:18,color:"rgba(255,100,100,0.7)"}}>Couldn't read the sky.</p>
+            <button onClick={()=>fetchWeather(city)} style={{marginTop:14,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.14)",borderRadius:20,color:"#fff",padding:"8px 20px",fontSize:13}}>
+              Try again
+            </button>
+          </div>
+        )}
+
+        {/* Footer */}
+        {!loading&&cur&&(
+          <div style={{textAlign:"center",padding:"24px 0 0",fontSize:11,color:"rgba(255,255,255,0.15)",letterSpacing:"0.15em"}}>
+            tempra · read the sky · open-meteo + bom
+          </div>
+        )}
+
+      </div>
+
+      {/* ── Insights toggle FAB ── */}
+      {!loading&&cur&&(
+        <button
+          className={`insights-btn${insightsMode?" active":""}`}
+          onClick={()=>setInsightsMode(m=>!m)}
+        >
+          {insightsMode?(
+            <><span style={{fontSize:14}}>←</span> Simple View</>
+          ):(
+            <><span style={{fontSize:14}}>✦</span> Tempra Insights</>
+          )}
+        </button>
+      )}
+
+    </div>
+  );
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
 </body>
 </html>
