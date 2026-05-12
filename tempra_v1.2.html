@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <title>tempra</title>
+  <meta name="description" content="Read the sky."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { height: 100%; }
+    body {
+      min-height: 100vh;
+      font-family: 'Inter', -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      background: #fff;
+      color: #0a0a0a;
+      overscroll-behavior: none;
+    }
+    ::-webkit-scrollbar { display: none; }
+    button { font-family: inherit; -webkit-tap-highlight-color: transparent; cursor: pointer; border: none; background: none; }
+    select { font-family: inherit; }
+
+    /* Simple view = white/black */
+    .view-simple { background: #fff; color: #0a0a0a; }
+    /* Insights view = very dark */
+    .view-insights { background: #0a0a0f; color: #fff; }
+
+    @keyframes fadeUp   { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes spin     { to { transform: rotate(360deg); } }
+    @keyframes blink    { 0%,100%{opacity:1} 50%{opacity:.3} }
+    @keyframes twinkle  { 0%,100%{opacity:.06} 50%{opacity:.45} }
+    .fade-up { animation: fadeUp .4s ease both; }
+
+    /* Dial tick marks */
+    .dial-track {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      cursor: grab;
+      user-select: none;
+    }
+    .dial-track:active { cursor: grabbing; }
+    .dial-tick {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      scroll-snap-align: center;
+    }
+
+    /* Insights toggle */
+    .insights-fab {
+      position: fixed;
+      bottom: 28px;
+      right: 20px;
+      z-index: 200;
+      padding: 10px 18px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .04em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all .25s;
+    }
+    .fab-simple {
+      background: #0a0a0a;
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+    }
+    .fab-insights {
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.2);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+
+    /* Insights tile */
+    .itile {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 18px;
+      padding: 16px;
+    }
+    .itile-label {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: .22em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.35);
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const CITIES = [
+  { name:"Melbourne", lat:-37.8136, lon:144.9631, tz:"Australia/Melbourne", radar:"IDR023" },
+  { name:"Sydney",    lat:-33.8688, lon:151.2093, tz:"Australia/Sydney",    radar:"IDR713" },
+  { name:"Brisbane",  lat:-27.4698, lon:153.0251, tz:"Australia/Brisbane",  radar:"IDR663" },
+  { name:"Perth",     lat:-31.9505, lon:115.8605, tz:"Australia/Perth",     radar:"IDR704" },
+  { name:"Adelaide",  lat:-34.9285, lon:138.6007, tz:"Australia/Adelaide",  radar:"IDR643" },
+  { name:"Canberra",  lat:-35.2809, lon:149.13,   tz:"Australia/Sydney",   radar:"IDR403" },
+  { name:"Darwin",    lat:-12.4634, lon:130.8456,  tz:"Australia/Darwin",   radar:"IDR632" },
+  { name:"Hobart",    lat:-42.8821, lon:147.3272,  tz:"Australia/Hobart",   radar:"IDR023" },
+];
+
+const WMO = {
+  0:{l:"Clear",s:0},   1:{l:"Clear",s:0},
+  2:{l:"Partly Cloudy",s:1}, 3:{l:"Overcast",s:1},
+  45:{l:"Fog",s:2},    48:{l:"Fog",s:2},
+  51:{l:"Drizzle",s:2},53:{l:"Drizzle",s:2},  55:{l:"Drizzle",s:3},
+  61:{l:"Light Rain",s:2},63:{l:"Rain",s:3},  65:{l:"Heavy Rain",s:4},
+  71:{l:"Light Snow",s:3},73:{l:"Snow",s:4},  75:{l:"Heavy Snow",s:5},
+  80:{l:"Showers",s:2},81:{l:"Showers",s:3},  82:{l:"Heavy Showers",s:4},
+  95:{l:"Thunderstorm",s:5},96:{l:"Thunderstorm",s:5},99:{l:"Thunderstorm",s:5},
+};
+const getWMO = c => WMO[c] || { l:"—", s:0 };
+
+const DAYS_LONG   = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const DAYS_SHORT  = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MONTHS_LONG = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MONTHS_SHORT= ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+const ord = n => { const s=["th","st","nd","rd"],v=n%100; return n+(s[(v-20)%10]||s[v]||s[0]); };
+const fmtDate = d => `${DAYS_LONG[d.getDay()]}, ${MONTHS_LONG[d.getMonth()]} ${ord(d.getDate())}`;
+const fmtHour = d => { const h=d.getHours(),m=d.getMinutes(); return `${h%12||12}${m?`:${String(m).padStart(2,"0")}`:""}${h>=12?"pm":"am"}`; };
+
+function timeToMins(s) {
+  if (!s) return 0;
+  const t = s.includes("T") ? s.split("T")[1] : s;
+  const [h,m] = t.split(":").map(Number);
+  return h*60+(m||0);
+}
+function minsToHourStr(mins) {
+  const h=Math.floor(mins/60)%24, m=Math.round(mins%60);
+  return `${h%12||12}${m?`:${String(m).padStart(2,"0")}`:""}${h>=12?"pm":"am"}`;
+}
+
+// ─── SVG Weather Icons (pure line, monochrome) ────────────────────────────────
+function WIcon({ code, size=36, stroke="#0a0a0a", strokeWidth=1.6 }) {
+  const sw = strokeWidth;
+  const s = { display:"block", flexShrink:0 };
+  const c = getWMO(code).s;
+
+  // Sun rays helper
+  const SunRays = ({ cx=24,cy=24,r=8,r1=12,r2=16,n=8 }) =>
+    Array.from({length:n}).map((_,i)=>{
+      const a=i*(360/n)*Math.PI/180;
+      return <line key={i} x1={cx+r1*Math.cos(a)} y1={cy+r1*Math.sin(a)}
+        x2={cx+r2*Math.cos(a)} y2={cy+r2*Math.sin(a)}
+        stroke={stroke} strokeWidth={sw} strokeLinecap="round"/>;
+    });
+
+  if (code===0||code===1) return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={s}>
+      <circle cx="24" cy="24" r="8" stroke={stroke} strokeWidth={sw}/>
+      <SunRays/>
+    </svg>
+  );
+
+  if (code===2) return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={s}>
+      <circle cx="19" cy="20" r="6" stroke={stroke} strokeWidth={sw}/>
+      {[315,0,45].map((deg,i)=>{
+        const a=deg*Math.PI/180,r1=9,r2=13;
+        return <line key={i} x1={19+r1*Math.cos(a)} y1={20+r1*Math.sin(a)}
+          x2={19+r2*Math.cos(a)} y2={20+r2*Math.sin(a)}
+          stroke={stroke} strokeWidth={sw} strokeLinecap="round"/>;
+      })}
+      <rect x="12" y="27" width="24" height="11" rx="5.5" stroke={stroke} strokeWidth={sw}/>
+    </svg>
+  );
+
+  if (code===3) return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={s}>
+      <path d="M8 29 Q8 20 17 20 Q18 11 28 11 Q39 11 39 22 Q45 22 45 29 Q45 36 39 36 H9 Q8 36 8 29Z"
+        stroke={stroke} strokeWidth={sw} strokeLinejoin="round"/>
+    </svg>
+  );
+
+  if (code===45||code===48) return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={s}>
+      {[13,21,29,37].map((y,i)=>(
+        <line key={i} x1={i%2===0?7:11} y1={y} x2={i%2===0?41:37} y2={y}
+          stroke={stroke} strokeWidth={sw} strokeLinecap="round" opacity={1-i*.15}/>
+      ))}
+    </svg>
+  );
+
+  if ((code>=51&&code<=65)||(code>=80&&code<=82)) {
+    const drops = code>=65||code===82?4:code>=63||code===81?3:2;
+    return (
+      <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={s}>
+        <path d="M7 24 Q7 15 16 15 Q17 7 27 7 Q37 7 37 18 Q43 18 43 24 Q43 31 37 31 H7Z"
+          stroke={stroke} strokeWidth={sw} strokeLinejoin="round"/>
+        {Array.from({length:drops}).map((_,i)=>(
+          <line key={i} x1={13+i*7} y1="35" x2={11+i*7} y2="44"
+            stroke={stroke} strokeWidth={sw} strokeLinecap="round"/>
+        ))}
+      </svg>
+    );
+  }
+
+  if (code>=71&&code<=75) return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={s}>
+      <path d="M7 22 Q7 13 16 13 Q17 5 27 5 Q37 5 37 16 Q43 16 43 22 Q43 29 37 29 H7Z"
+        stroke={stroke} strokeWidth={sw} strokeLinejoin="round"/>
+      {[13,22,31].map((x,i)=>[
+        <circle key={`a${i}`} cx={x} cy={35} r={1.8} fill={stroke}/>,
+        <circle key={`b${i}`} cx={x} cy={43} r={1.8} fill={stroke}/>,
+      ])}
+    </svg>
+  );
+
+  if (code>=95) return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={s}>
+      <path d="M7 22 Q7 13 16 13 Q17 5 27 5 Q37 5 37 16 Q43 16 43 22 Q43 29 37 29 H7Z"
+        stroke={stroke} strokeWidth={sw} strokeLinejoin="round"/>
+      <polyline points="29,31 23,40 27,40 21,49"
+        stroke={stroke} strokeWidth={sw*1.2} strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+
+  // Fallback cloud
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" style={s}>
+      <path d="M8 29 Q8 20 17 20 Q18 11 28 11 Q39 11 39 22 Q45 22 45 29 Q45 36 39 36 H9Z"
+        stroke={stroke} strokeWidth={sw} strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+// ─── Hourly Strip (past / now / future icons) ─────────────────────────────────
+function HourlyStrip({ hourly, now }) {
+  if (!hourly) return null;
+  const todayStr = now.toISOString().slice(0,10);
+  const nowMins  = now.getHours()*60 + now.getMinutes();
+  const items = [];
+  for (let i=0; i<hourly.time.length; i++) {
+    if (!hourly.time[i].startsWith(todayStr)) continue;
+    const mins = timeToMins(hourly.time[i]);
+    const diff = mins - nowMins;
+    // Show: 3h before now through 6h after
+    if (diff < -360 || diff > 360) continue; // 6h each side
+    const t = new Date(hourly.time[i]);
+    items.push({
+      mins, diff,
+      timeLabel: fmtHour(t),
+      temp: Math.round(hourly.temperature_2m[i]),
+      code: hourly.weathercode[i],
+      isCurrent: Math.abs(diff) < 30,
+      isPast: diff < -15,
+    });
+  }
+  if (!items.length) return null;
+
+  return (
+    <div style={{ overflowX:"auto", padding:"0 20px" }}>
+      <div style={{ display:"flex", gap:0, minWidth:"max-content", alignItems:"flex-end" }}>
+        {items.map((item,i) => (
+          <div key={i} style={{
+            display:"flex", flexDirection:"column", alignItems:"center",
+            padding:"0 14px", opacity: item.isPast ? 0.3 : 1,
+            position:"relative",
+          }}>
+            {/* Time above */}
+            <span style={{
+              fontSize:10, fontWeight: item.isCurrent?600:400,
+              color: item.isCurrent?"#0a0a0a":"rgba(0,0,0,0.4)",
+              marginBottom:8, letterSpacing:".02em",
+            }}>{item.timeLabel}</span>
+
+            {/* Icon */}
+            <WIcon code={item.code} size={item.isCurrent?36:28}
+              stroke={item.isCurrent?"#0a0a0a":"rgba(0,0,0,0.5)"}
+              strokeWidth={item.isCurrent?1.8:1.4}/>
+
+            {/* Temp below */}
+            <span style={{
+              fontSize: item.isCurrent?15:12,
+              fontWeight: item.isCurrent?600:400,
+              color: item.isCurrent?"#0a0a0a":"rgba(0,0,0,0.5)",
+              marginTop:8,
+            }}>{item.temp}°</span>
+
+            {/* Current dot */}
+            {item.isCurrent && (
+              <div style={{
+                width:4, height:4, borderRadius:"50%",
+                background:"#0a0a0a", marginTop:4,
+              }}/>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Time Dial ────────────────────────────────────────────────────────────────
+function TimeDial({ hourly, now, riseMins, setMins }) {
+  const trackRef  = useRef(null);
+  const [activeIdx, setActiveIdx] = useState(null);
+  const isDragging = useRef(false);
+
+  const todayStr = now.toISOString().slice(0,10);
+  const nowMins  = now.getHours()*60 + now.getMinutes();
+
+  const slots = useMemo(() => {
+    if (!hourly) return [];
+    const out = [];
+    for (let i=0; i<hourly.time.length; i++) {
+      if (!hourly.time[i].startsWith(todayStr)) continue;
+      const mins = timeToMins(hourly.time[i]);
+      out.push({
+        mins,
+        label: minsToHourStr(mins),
+        temp:  Math.round(hourly.temperature_2m[i]),
+        feels: Math.round((hourly.apparent_temperature||hourly.temperature_2m)[i]),
+        code:  hourly.weathercode[i],
+        isSunrise: Math.abs(mins-riseMins)<30,
+        isSunset:  Math.abs(mins-setMins)<30,
+      });
+    }
+    return out;
+  }, [hourly, todayStr, riseMins, setMins]);
+
+  // Find current hour index
+  const currentIdx = useMemo(() => {
+    let best=0, bestDiff=Infinity;
+    slots.forEach((s,i)=>{ const d=Math.abs(s.mins-nowMins); if(d<bestDiff){bestDiff=d;best=i;} });
+    return best;
+  }, [slots, nowMins]);
+
+  const displayIdx = activeIdx !== null ? activeIdx : currentIdx;
+  const active = slots[displayIdx];
+
+  // Tick width
+  const TICK_W = 28;
+
+  // Scroll to current on load
+  useEffect(() => {
+    if (!trackRef.current || !slots.length) return;
+    const el = trackRef.current;
+    const targetScroll = currentIdx * TICK_W - (el.clientWidth/2 - TICK_W/2);
+    el.scrollLeft = Math.max(0, targetScroll);
+  }, [slots.length, currentIdx]);
+
+  // Sync scroll position → activeIdx
+  const onScroll = useCallback(() => {
+    const el = trackRef.current;
+    if (!el || !slots.length) return;
+    const center = el.scrollLeft + el.clientWidth/2;
+    const idx = Math.round((center - TICK_W/2) / TICK_W);
+    setActiveIdx(Math.max(0, Math.min(idx, slots.length-1)));
+  }, [slots.length]);
+
+  // Reset after 2s idle
+  const idleTimer = useRef(null);
+  const handleScrollWithReset = useCallback(() => {
+    isDragging.current = true;
+    onScroll();
+    clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => {
+      setActiveIdx(null);
+      isDragging.current = false;
+    }, 2000);
+  }, [onScroll]);
+
+  if (!slots.length) return null;
+
+  return (
+    <div style={{ padding:"0 0 4px" }}>
+      {/* Readout */}
+      <div style={{ textAlign:"center", marginBottom:14, minHeight:60 }}>
+        {active && (
+          <>
+            <div style={{ fontSize:11, color:"rgba(0,0,0,0.4)", letterSpacing:".05em", marginBottom:2 }}>
+              {activeIdx!==null ? active.label : "Now"}
+            </div>
+            <div style={{ fontSize:42, fontWeight:200, color:"#0a0a0a", lineHeight:1, letterSpacing:"-1px" }}>
+              {active.temp}<span style={{fontSize:24,fontWeight:300}}>°</span>
+            </div>
+            <div style={{ fontSize:12, color:"rgba(0,0,0,0.4)", marginTop:3 }}>
+              Feels like {active.feels}°
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Dial rail — centre indicator */}
+      <div style={{ position:"relative", height:56 }}>
+        {/* Centre line (bold = current position) */}
+        <div style={{
+          position:"absolute", left:"50%", top:0, bottom:0,
+          width:2, background:"#0a0a0a", transform:"translateX(-50%)",
+          zIndex:2, borderRadius:1,
+        }}/>
+
+        {/* Scrollable ticks */}
+        <div
+          ref={trackRef}
+          onScroll={handleScrollWithReset}
+          style={{
+            overflowX:"auto", height:"100%",
+            display:"flex", alignItems:"center",
+            scrollSnapType:"x mandatory",
+            WebkitOverflowScrolling:"touch",
+            cursor:"grab",
+            position:"relative",
+          }}
+        >
+          {/* Left spacer */}
+          <div style={{ flexShrink:0, width:"50%" }}/>
+
+          {slots.map((slot, i) => {
+            const isCur = i === currentIdx;
+            const isActive = i === (activeIdx ?? currentIdx);
+            const isSpecial = slot.isSunrise || slot.isSunset;
+            return (
+              <div key={i} style={{
+                flexShrink:0, width:TICK_W,
+                display:"flex", flexDirection:"column",
+                alignItems:"center", justifyContent:"center",
+                scrollSnapAlign:"center", height:"100%", gap:4,
+                cursor:"pointer",
+              }}>
+                {/* Sunrise/sunset marker */}
+                {isSpecial && (
+                  <div style={{
+                    fontSize:8, color:"rgba(0,0,0,0.35)", letterSpacing:".05em",
+                    textAlign:"center", lineHeight:1,
+                  }}>
+                    {slot.isSunrise?"rise":"set"}
+                  </div>
+                )}
+                {/* Tick */}
+                <div style={{
+                  width: isCur ? 2.5 : 1.5,
+                  height: isCur ? 28 : i%3===0 ? 20 : 13,
+                  background: isActive
+                    ? "#0a0a0a"
+                    : isSpecial
+                      ? "rgba(0,0,0,0.3)"
+                      : i%6===0
+                        ? "rgba(0,0,0,0.25)"
+                        : "rgba(0,0,0,0.12)",
+                  borderRadius:1,
+                  transition:"height .15s, width .15s",
+                }}/>
+                {/* Hour label every 3 */}
+                {i%3===0 && (
+                  <div style={{
+                    fontSize:8, color:isActive?"rgba(0,0,0,0.7)":"rgba(0,0,0,0.25)",
+                    whiteSpace:"nowrap",
+                  }}>
+                    {slot.label}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Right spacer */}
+          <div style={{ flexShrink:0, width:"50%" }}/>
+        </div>
+      </div>
+
+      {/* Drag hint */}
+      <div style={{ textAlign:"center", marginTop:6, fontSize:9, color:"rgba(0,0,0,0.2)", letterSpacing:".1em", textTransform:"uppercase" }}>
+        drag to explore
+      </div>
+    </div>
+  );
+}
+
+// ─── Temperature Line Graph (simple, bottom of screen) ────────────────────────
+function TempGraph({ hourly, now, riseMins, setMins }) {
+  if (!hourly) return null;
+  const todayStr = now.toISOString().slice(0,10);
+  const nowMins  = now.getHours()*60 + now.getMinutes();
+
+  const slots = [];
+  for (let i=0; i<hourly.time.length; i++) {
+    if (!hourly.time[i].startsWith(todayStr)) continue;
+    slots.push({
+      mins:  timeToMins(hourly.time[i]),
+      temp:  Math.round(hourly.temperature_2m[i]),
+      feels: Math.round((hourly.apparent_temperature||hourly.temperature_2m)[i]),
+    });
+  }
+  if (slots.length < 2) return null;
+
+  const W=360, H=80, PL=0, PR=0, PT=14, PB=16;
+  const pw=W-PL-PR, ph=H-PT-PB;
+  const temps = slots.map(s=>s.temp);
+  const lo = Math.min(...temps)-1, hi = Math.max(...temps)+1;
+  const span = hi-lo||1;
+  const xOf = i => PL + (i/(slots.length-1))*pw;
+  const yOf = v => PT + ph - ((v-lo)/span)*ph;
+
+  // Smooth bezier path
+  const path = pts => {
+    if (pts.length<2) return "";
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i=1;i<pts.length;i++) {
+      const cp=0.4;
+      const x1=pts[i-1].x+(pts[i].x-pts[i-1].x)*cp, y1=pts[i-1].y;
+      const x2=pts[i].x-(pts[i].x-pts[i-1].x)*cp,   y2=pts[i].y;
+      d+=` C ${x1} ${y1} ${x2} ${y2} ${pts[i].x} ${pts[i].y}`;
+    }
+    return d;
+  };
+
+  const tempPts  = slots.map((s,i)=>({x:xOf(i),y:yOf(s.temp)}));
+  const feelsPts = slots.map((s,i)=>({x:xOf(i),y:yOf(s.feels)}));
+  const nowX = xOf(slots.findIndex(s=>Math.abs(s.mins-nowMins)<35)||0);
+
+  const minsRange = slots[slots.length-1].mins - slots[0].mins || 1;
+  const rX = PL + ((riseMins-slots[0].mins)/minsRange)*pw;
+  const sX = PL + ((setMins -slots[0].mins)/minsRange)*pw;
+
+  return (
+    <div style={{ width:"100%", paddingTop:4 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", display:"block", overflow:"visible" }}>
+        <defs>
+          <linearGradient id="nightL" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%"   stopColor="#e8e8e8"/>
+            <stop offset="100%" stopColor="#f5f5f5"/>
+          </linearGradient>
+        </defs>
+
+        {/* Night shade left */}
+        {rX>0 && <rect x={PL} y={PT} width={Math.max(0,rX-PL)} height={ph} fill="#f0f0f0" opacity=".7"/>}
+        {/* Night shade right */}
+        {sX<W && <rect x={sX} y={PT} width={Math.max(0,W-PR-sX)} height={ph} fill="#f0f0f0" opacity=".7"/>}
+
+        {/* Sunrise / sunset dashes */}
+        {rX>0&&rX<W && <line x1={rX} y1={PT} x2={rX} y2={PT+ph} stroke="#bbb" strokeWidth=".8" strokeDasharray="3 3"/>}
+        {sX>0&&sX<W && <line x1={sX} y1={PT} x2={sX} y2={PT+ph} stroke="#bbb" strokeWidth=".8" strokeDasharray="3 3"/>}
+
+        {/* Feels-like (lighter dashed) */}
+        <path d={path(feelsPts)} fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="1.2" strokeDasharray="4 3"/>
+
+        {/* Temp fill */}
+        <path
+          d={path(tempPts)+` L ${tempPts[tempPts.length-1].x} ${PT+ph} L ${PL} ${PT+ph} Z`}
+          fill="rgba(0,0,0,0.04)"
+        />
+
+        {/* Temp line */}
+        <path d={path(tempPts)} fill="none" stroke="#0a0a0a" strokeWidth="1.6" strokeLinecap="round"/>
+
+        {/* Now marker */}
+        <line x1={nowX} y1={PT} x2={nowX} y2={PT+ph} stroke="rgba(0,0,0,0.15)" strokeWidth="1"/>
+        <circle cx={nowX} cy={yOf(slots.find(s=>Math.abs(s.mins-nowMins)<35)?.temp||lo)} r="3"
+          fill="#0a0a0a"/>
+
+        {/* Axis labels */}
+        {slots.filter((_,i)=>i%4===0).map((s,i,arr)=>(
+          <text key={i} x={xOf(slots.indexOf(s))} y={H-2}
+            fill="rgba(0,0,0,0.28)" fontSize="8" textAnchor="middle" fontFamily="Inter,sans-serif">
+            {s.mins===0?"12am":minsToHourStr(s.mins)}
+          </text>
+        ))}
+
+        {/* Temp labels on curve */}
+        {slots.filter((_,i)=>i%4===0).map((s,i)=>(
+          <text key={i} x={xOf(slots.indexOf(s))} y={yOf(s.temp)-5}
+            fill="rgba(0,0,0,0.45)" fontSize="8" textAnchor="middle" fontFamily="Inter,sans-serif">
+            {s.temp}°
+          </text>
+        ))}
+      </svg>
+
+      {/* Legend */}
+      <div style={{ display:"flex", gap:16, justifyContent:"center", paddingBottom:4 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:9, color:"rgba(0,0,0,0.35)" }}>
+          <div style={{ width:14, height:1.5, background:"#0a0a0a", borderRadius:1 }}/> Temp
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:9, color:"rgba(0,0,0,0.35)" }}>
+          <div style={{ width:14, height:1.5, background:"rgba(0,0,0,0.25)", borderRadius:1, borderTop:"1px dashed rgba(0,0,0,0.3)" }}/> Feels like
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Insights components (dark) ───────────────────────────────────────────────
+function AQITile({ aqi }) {
+  const labels = ["Good","Fair","Moderate","Poor","Very Poor"];
+  const colors = ["#22c55e","#84cc16","#eab308","#f97316","#ef4444"];
+  const i = aqi!=null ? Math.min(4,Math.max(0,aqi-1)) : null;
+  return (
+    <div className="itile">
+      <div className="itile-label">Air Quality</div>
+      {i!=null ? (
+        <>
+          <div style={{ fontSize:22, fontWeight:600, color:colors[i], lineHeight:1 }}>{labels[i]}</div>
+          <div style={{ marginTop:8, height:3, borderRadius:99, background:"rgba(255,255,255,0.1)", overflow:"hidden" }}>
+            <div style={{ width:`${((i+1)/5)*100}%`, height:"100%", background:colors[i], borderRadius:99 }}/>
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize:12, color:"rgba(255,255,255,0.3)" }}>Unavailable</div>
+      )}
+    </div>
+  );
+}
+
+function WeekTile({ date, data, isToday }) {
+  return (
+    <div style={{
+      flexShrink:0, minWidth:80, borderRadius:14, padding:"12px 10px",
+      textAlign:"center", display:"flex", flexDirection:"column", alignItems:"center", gap:5,
+      background:isToday?"rgba(255,255,255,0.12)":"rgba(255,255,255,0.05)",
+      border:`1px solid rgba(255,255,255,${isToday?0.18:0.07})`,
+    }}>
+      <div style={{ fontSize:11, fontWeight:isToday?600:400, color:isToday?"#fff":"rgba(255,255,255,0.5)" }}>
+        {isToday?"Today":DAYS_SHORT[date.getDay()]}
+      </div>
+      <WIcon code={data.code} size={28} stroke={isToday?"#fff":"rgba(255,255,255,0.6)"} strokeWidth={1.5}/>
+      <div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>{data.max}°</div>
+      <div style={{ fontSize:11, color:"rgba(255,255,255,0.38)" }}>{data.min}°</div>
+      {data.rainProb>15&&<div style={{ fontSize:9, color:"#7dd3fc" }}>💧{data.rainProb}%</div>}
+    </div>
+  );
+}
+
+function AIEventSummary({ summary, loading }) {
+  return (
+    <div className="itile" style={{ gridColumn:"span 2" }}>
+      <div className="itile-label">✦ Today's Briefing</div>
+      {loading ? (
+        <div style={{ display:"flex", alignItems:"center", gap:8, color:"rgba(255,255,255,0.4)", fontSize:13 }}>
+          <div style={{ width:12,height:12,border:"1.5px solid rgba(255,255,255,0.2)",borderTopColor:"#818cf8",borderRadius:"50%",animation:"spin .8s linear infinite" }}/>
+          Reading the sky…
+        </div>
+      ) : summary ? (
+        <div style={{ fontSize:14, lineHeight:1.75, color:"rgba(255,255,255,0.82)", fontWeight:300 }}>{summary}</div>
+      ) : (
+        <div style={{ fontSize:12, color:"rgba(255,255,255,0.3)" }}>Briefing unavailable</div>
+      )}
+    </div>
+  );
+}
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+function App() {
+  const [city,    setCity]    = useState(() => {
+    try { return CITIES.find(c=>c.name===localStorage.getItem("t_city"))||CITIES[0]; } catch { return CITIES[0]; }
+  });
+  const [weather, setWeather] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [mode,    setMode]    = useState("simple"); // "simple" | "insights"
+  const [aiText,  setAiText]  = useState(null);
+  const [aiLoading,setAiLoading] = useState(false);
+  const [aqi,     setAqi]     = useState(null);
+  const [now,     setNow]     = useState(new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const fetchWeather = useCallback(async c => {
+    setLoading(true); setWeather(null); setAiText(null);
+    try {
+      const [wxRes, aqRes] = await Promise.all([
+        fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}` +
+          `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weathercode,windspeed_10m,precipitation` +
+          `&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weathercode` +
+          `&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max,` +
+          `precipitation_sum,precipitation_probability_max,precipitation_hours,sunrise,sunset,uv_index_max` +
+          `&timezone=${c.tz}&forecast_days=10`
+        ),
+        fetch(
+          `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${c.lat}&longitude=${c.lon}` +
+          `&current=european_aqi&timezone=${c.tz}`
+        ).catch(() => null),
+      ]);
+      const wx = await wxRes.json();
+      setWeather(wx);
+      if (aqRes) {
+        const aqData = await aqRes.json().catch(() => null);
+        const raw = aqData?.current?.european_aqi;
+        if (raw != null) setAqi(raw<=20?1:raw<=40?2:raw<=60?3:raw<=80?4:5);
+      }
+    } catch(e) { console.error("fetch:", e); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchWeather(city); }, [city]);
+  useEffect(() => { try{localStorage.setItem("t_city",city.name);}catch{} }, [city]);
+
+  // Trigger AI when weather loads (simple view briefing + insights)
+  useEffect(() => {
+    if (!weather || aiText || aiLoading) return;
+    genAI();
+  }, [weather]);
+
+  const genAI = async () => {
+    if (!weather?.current || !weather?.daily || !weather?.hourly) return;
+    setAiLoading(true);
+    try {
+      const cur = weather.current, daily = weather.daily, hourly = weather.hourly;
+      const todayStr = now.toISOString().slice(0,10);
+      // Build rain event summary
+      const rainPeriods = [];
+      let inRain=false, rs=null;
+      for (let i=0;i<hourly.time.length;i++) {
+        if (!hourly.time[i].startsWith(todayStr)) continue;
+        const t=new Date(hourly.time[i]), prob=hourly.precipitation_probability?.[i]||0;
+        if (!inRain&&prob>40){inRain=true;rs=t;}
+        else if (inRain&&prob<=20){rainPeriods.push(`rain from ${fmtHour(rs)} to ${fmtHour(t)}`);inRain=false;}
+      }
+      if (inRain&&rs) rainPeriods.push(`rain from ${fmtHour(rs)} onwards`);
+
+      const prompt =
+        `You are Tempra, a concise Australian weather assistant. Write exactly 2 short sentences summarising the weather for ${city.name} today and the next few days. ` +
+        `Be specific about any notable events. Use plain conversational Australian English. No emojis, no bullet points, no greeting. ` +
+        `Data: Today is ${fmtDate(now)}. Current: ${Math.round(cur.temperature_2m)}°C, feels ${Math.round(cur.apparent_temperature)}°C, ${getWMO(cur.weathercode).l}. ` +
+        `Today range: ${Math.round(daily.temperature_2m_min[0])}–${Math.round(daily.temperature_2m_max[0])}°. ` +
+        `UV: ${daily.uv_index_max?.[0]??'unknown'}. Wind: ${Math.round(cur.windspeed_10m)} km/h. ` +
+        (rainPeriods.length ? `Rain today: ${rainPeriods.join(", ")}. ` : "No significant rain today. ") +
+        `Week ahead max temps: ${daily.temperature_2m_max.slice(1,7).map(t=>Math.round(t)+"°").join(", ")}.`;
+
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:120,
+          messages:[{ role:"user", content:prompt }],
+        }),
+      });
+      const data = await res.json();
+      setAiText(data?.content?.[0]?.text || null);
+    } catch(e) {
+      console.warn("AI:", e);
+      setAiText(null);
+    }
+    setAiLoading(false);
+  };
+
+  // Derived
+  const cur    = weather?.current;
+  const daily  = weather?.daily;
+  const hourly = weather?.hourly;
+  const sunriseStr = daily?.sunrise?.[0];
+  const sunsetStr  = daily?.sunset?.[0];
+  const riseMins   = timeToMins(sunriseStr) || 360;
+  const setMins    = timeToMins(sunsetStr)  || 1140;
+  const weekMin    = daily ? Math.min(...daily.temperature_2m_min.slice(0,7)) : 0;
+  const weekMax    = daily ? Math.max(...daily.temperature_2m_max.slice(0,7)) : 30;
+
+  const isInsights = mode === "insights";
+
+  return (
+    <div style={{
+      minHeight:"100vh",
+      background: isInsights ? "#0a0a0f" : "#ffffff",
+      color: isInsights ? "#ffffff" : "#0a0a0a",
+      transition:"background .4s ease, color .4s ease",
+      paddingBottom:80,
+    }}>
+
+      {/* Stars in insights mode */}
+      {isInsights && (
+        <div style={{ position:"fixed",inset:0,pointerEvents:"none",zIndex:0,overflow:"hidden" }}>
+          {Array.from({length:50}).map((_,i)=>(
+            <div key={i} style={{
+              position:"absolute",
+              left:`${(i*137.508)%100}%`, top:`${(i*93.7)%80}%`,
+              width:i%9===0?2:1, height:i%9===0?2:1,
+              background:"#fff", borderRadius:"50%",
+              opacity:.06+((i*.19)%.4),
+              animation:`twinkle ${2+(i%5)*.8}s ${(i*.37)%4}s ease-in-out infinite`,
+            }}/>
+          ))}
+        </div>
+      )}
+
+      <div style={{ position:"relative", zIndex:1 }}>
+
+        {/* ─── Header ─────────────────────────────────────────────────────── */}
+        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", padding:"22px 20px 0" }}>
+          <div>
+            {!loading && cur && daily && !isInsights && (
+              <>
+                {/* Day + date — large */}
+                <div style={{ fontSize:11, fontWeight:500, color:"rgba(0,0,0,0.38)", letterSpacing:".06em", textTransform:"uppercase", marginBottom:2 }}>
+                  {DAYS_LONG[now.getDay()]}
+                </div>
+                <div style={{ fontSize:28, fontWeight:300, color:"#0a0a0a", lineHeight:1, letterSpacing:"-0.5px" }}>
+                  {MONTHS_LONG[now.getMonth()]} {ord(now.getDate())}
+                </div>
+              </>
+            )}
+            {isInsights && (
+              <div style={{ fontSize:16, fontWeight:500, color:"rgba(255,255,255,0.7)", letterSpacing:".02em" }}>
+                Tempra Insights
+              </div>
+            )}
+          </div>
+
+          {/* City picker */}
+          <select
+            value={city.name}
+            onChange={e => { setCity(CITIES.find(c=>c.name===e.target.value)); setAiText(null); }}
+            style={{
+              appearance:"none", border:"none", outline:"none",
+              background:"transparent",
+              fontSize:13, fontWeight:500,
+              color: isInsights ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.45)",
+              cursor:"pointer", paddingRight:4,
+            }}
+          >
+            {CITIES.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}
+          </select>
+        </div>
+
+        {/* ─── Loading ─────────────────────────────────────────────────────── */}
+        {loading && (
+          <div style={{ textAlign:"center", padding:"100px 20px" }}>
+            <div style={{
+              width:28, height:28,
+              border:`2px solid ${isInsights?"rgba(255,255,255,0.1)":"rgba(0,0,0,0.1)"}`,
+              borderTopColor:isInsights?"#818cf8":"#0a0a0a",
+              borderRadius:"50%", animation:"spin .9s linear infinite", margin:"0 auto",
+            }}/>
+          </div>
+        )}
+
+        {!loading && cur && daily && (
+          <>
+            {/* ═══════════════ SIMPLE VIEW ══════════════════════════════════ */}
+            {!isInsights && (
+              <div className="fade-up" style={{ maxWidth:480, margin:"0 auto" }}>
+
+                {/* Current temp + condition */}
+                <div style={{ padding:"24px 20px 10px", display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
+                  <div>
+                    <div style={{ fontSize:72, fontWeight:200, lineHeight:1, letterSpacing:"-3px", color:"#0a0a0a" }}>
+                      {Math.round(cur.temperature_2m)}<span style={{fontSize:40,fontWeight:200}}>°</span>
+                    </div>
+                    <div style={{ fontSize:16, fontWeight:300, color:"rgba(0,0,0,0.5)", marginTop:4 }}>
+                      {getWMO(cur.weathercode).l}
+                    </div>
+                  </div>
+                  <WIcon code={cur.weathercode} size={52} stroke="rgba(0,0,0,0.75)" strokeWidth={1.5}/>
+                </div>
+
+                {/* Subtle meta row */}
+                <div style={{ padding:"0 20px 20px", display:"flex", gap:16, fontSize:12, color:"rgba(0,0,0,0.38)", flexWrap:"wrap" }}>
+                  <span>Feels like {Math.round(cur.apparent_temperature)}°</span>
+                  <span>{Math.round(daily.temperature_2m_min[0])}° – {Math.round(daily.temperature_2m_max[0])}°</span>
+                  {daily.precipitation_probability_max[0]>0&&<span>💧 {daily.precipitation_probability_max[0]}% rain</span>}
+                  <span>UV {daily.uv_index_max?.[0]??'—'}</span>
+                </div>
+
+                {/* AI Daily Briefing */}
+                <div style={{ margin:"0 20px 20px", padding:"14px 16px", background:"rgba(0,0,0,0.03)", borderRadius:14, border:"1px solid rgba(0,0,0,0.06)" }}>
+                  {aiLoading && (
+                    <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, color:"rgba(0,0,0,0.35)" }}>
+                      <div style={{ width:10,height:10,border:"1.5px solid rgba(0,0,0,0.15)",borderTopColor:"#0a0a0a",borderRadius:"50%",animation:"spin .8s linear infinite" }}/>
+                      Reading the sky…
+                    </div>
+                  )}
+                  {!aiLoading && aiText && (
+                    <div style={{ fontSize:13, lineHeight:1.75, color:"rgba(0,0,0,0.7)", fontWeight:300 }}>{aiText}</div>
+                  )}
+                  {!aiLoading && !aiText && (
+                    <div style={{ fontSize:12, color:"rgba(0,0,0,0.3)" }}>Briefing loading…</div>
+                  )}
+                </div>
+
+                {/* Divider */}
+                <div style={{ height:1, background:"rgba(0,0,0,0.06)", margin:"0 20px" }}/>
+
+                {/* Hourly icon strip */}
+                <div style={{ padding:"18px 0 16px" }}>
+                  <HourlyStrip hourly={hourly} now={now}/>
+                </div>
+
+                {/* Divider */}
+                <div style={{ height:1, background:"rgba(0,0,0,0.06)", margin:"0 20px" }}/>
+
+                {/* Time dial */}
+                <div style={{ padding:"20px 0 8px" }}>
+                  <TimeDial hourly={hourly} now={now} riseMins={riseMins} setMins={setMins}/>
+                </div>
+
+                {/* Divider */}
+                <div style={{ height:1, background:"rgba(0,0,0,0.06)", margin:"0 20px" }}/>
+
+                {/* Temp graph */}
+                <div style={{ padding:"16px 16px 4px" }}>
+                  <TempGraph hourly={hourly} now={now} riseMins={riseMins} setMins={setMins}/>
+                </div>
+
+                {/* Sunrise / Sunset */}
+                <div style={{ display:"flex", justifyContent:"space-around", padding:"4px 20px 20px" }}>
+                  {[
+                    {label:"Sunrise", val:minsToHourStr(riseMins)},
+                    {label:"Sunset",  val:minsToHourStr(setMins)},
+                    {label:"Day", val:(()=>{const h=Math.floor((setMins-riseMins)/60),m=(setMins-riseMins)%60;return`${h}h ${m}m`})()},
+                  ].map((s,i)=>(
+                    <div key={i} style={{ textAlign:"center" }}>
+                      <div style={{ fontSize:13, fontWeight:500, color:"#0a0a0a" }}>{s.val}</div>
+                      <div style={{ fontSize:10, color:"rgba(0,0,0,0.35)", marginTop:2, letterSpacing:".03em" }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 7-day */}
+                <div style={{ height:1, background:"rgba(0,0,0,0.06)", margin:"0 20px 16px" }}/>
+                <div style={{ padding:"0 20px" }}>
+                  <div style={{ fontSize:10, fontWeight:600, letterSpacing:".18em", textTransform:"uppercase", color:"rgba(0,0,0,0.3)", marginBottom:10 }}>
+                    This Week
+                  </div>
+                  {daily.time.slice(1,8).map((d,i)=>{
+                    const date=new Date(d+"T00:00:00");
+                    const span=weekMax-weekMin||1;
+                    const max=Math.round(daily.temperature_2m_max[i+1]);
+                    const min=Math.round(daily.temperature_2m_min[i+1]);
+                    return(
+                      <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"9px 0", borderBottom:"1px solid rgba(0,0,0,0.05)" }}>
+                        <div style={{ width:36, fontSize:12, fontWeight:500, color:"rgba(0,0,0,0.5)" }}>
+                          {DAYS_SHORT[date.getDay()]}
+                        </div>
+                        <WIcon code={daily.weathercode[i+1]} size={20} stroke="rgba(0,0,0,0.6)" strokeWidth={1.5}/>
+                        <div style={{ flex:1, height:3, borderRadius:99, background:"rgba(0,0,0,0.07)", overflow:"hidden", margin:"0 4px" }}>
+                          <div style={{
+                            marginLeft:`${((min-weekMin)/span*100).toFixed(1)}%`,
+                            width:`${Math.max(8,((max-min)/span*100)).toFixed(1)}%`,
+                            height:"100%", borderRadius:99, background:"rgba(0,0,0,0.3)",
+                          }}/>
+                        </div>
+                        <div style={{ display:"flex", gap:8, fontSize:13 }}>
+                          <span style={{ color:"rgba(0,0,0,0.4)" }}>{min}°</span>
+                          <span style={{ fontWeight:600, color:"#0a0a0a" }}>{max}°</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+              </div>
+            )}
+
+            {/* ═══════════════ INSIGHTS VIEW (dark) ════════════════════════ */}
+            {isInsights && (
+              <div className="fade-up" style={{ padding:"20px 16px 0" }}>
+
+                {/* Current quick-read */}
+                <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20 }}>
+                  <div>
+                    <div style={{ fontSize:48, fontWeight:200, color:"#fff", lineHeight:1, letterSpacing:"-2px" }}>
+                      {Math.round(cur.temperature_2m)}°
+                    </div>
+                    <div style={{ fontSize:13, color:"rgba(255,255,255,0.45)", marginTop:4 }}>
+                      {getWMO(cur.weathercode).l} · {fmtDate(now)}
+                    </div>
+                  </div>
+                  <WIcon code={cur.weathercode} size={48} stroke="rgba(255,255,255,0.7)" strokeWidth={1.4}/>
+                </div>
+
+                {/* AI briefing */}
+                <div style={{ marginBottom:12 }}>
+                  <AIEventSummary summary={aiText} loading={aiLoading}/>
+                </div>
+
+                {/* 10-day scroll */}
+                <div className="itile" style={{ marginBottom:12 }}>
+                  <div className="itile-label">☁ 10-Day Outlook</div>
+                  <div style={{ overflowX:"auto", margin:"0 -4px" }}>
+                    <div style={{ display:"flex", gap:8, minWidth:"max-content", padding:"0 4px" }}>
+                      {daily.time.map((d,i)=>(
+                        <WeekTile key={i} date={new Date(d+"T00:00:00")} isToday={i===0}
+                          data={{
+                            code:daily.weathercode[i],
+                            max:Math.round(daily.temperature_2m_max[i]),
+                            min:Math.round(daily.temperature_2m_min[i]),
+                            rainProb:daily.precipitation_probability_max[i],
+                          }}/>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metric tiles grid */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+                  <AQITile aqi={aqi}/>
+                  <div className="itile">
+                    <div className="itile-label">UV Index</div>
+                    <div style={{ fontSize:32, fontWeight:700, lineHeight:1, color:
+                      daily.uv_index_max?.[0]>=8?"#ef4444":
+                      daily.uv_index_max?.[0]>=6?"#f97316":
+                      daily.uv_index_max?.[0]>=3?"#eab308":"#22c55e" }}>
+                      {daily.uv_index_max?.[0]??'—'}
+                    </div>
+                    <div style={{ fontSize:11, color:"rgba(255,255,255,0.38)", marginTop:4 }}>
+                      {daily.uv_index_max?.[0]>=8?"Extreme":daily.uv_index_max?.[0]>=6?"High":daily.uv_index_max?.[0]>=3?"Moderate":"Low"}
+                    </div>
+                  </div>
+                  <div className="itile">
+                    <div className="itile-label">Wind</div>
+                    <div style={{ fontSize:26, fontWeight:700, color:"#fff", lineHeight:1 }}>{Math.round(cur.windspeed_10m)}</div>
+                    <div style={{ fontSize:11, color:"rgba(255,255,255,0.38)", marginTop:2 }}>km/h</div>
+                  </div>
+                  <div className="itile">
+                    <div className="itile-label">Humidity</div>
+                    <div style={{ fontSize:26, fontWeight:700, color:"#fff", lineHeight:1 }}>{cur.relative_humidity_2m}%</div>
+                    <div style={{ fontSize:11, color:"rgba(255,255,255,0.38)", marginTop:2 }}>Relative</div>
+                  </div>
+                </div>
+
+                {/* Pollen placeholder */}
+                <div className="itile" style={{ marginBottom:12 }}>
+                  <div className="itile-label">🌿 Pollen</div>
+                  <div style={{ fontSize:13, color:"rgba(255,255,255,0.38)", lineHeight:1.6 }}>
+                    Pollen data integration planned for v1.2 (Ambee / IQAir API).
+                  </div>
+                </div>
+
+                {/* Radar */}
+                <div className="itile" style={{ marginBottom:12 }}>
+                  <div className="itile-label">📡 BOM Radar — {city.name}</div>
+                  <div style={{ borderRadius:10, overflow:"hidden", background:"#000d1a" }}>
+                    <iframe title="BOM Radar"
+                      src={`https://www.bom.gov.au/products/${city.radar}.loop.shtml`}
+                      style={{ width:"100%", height:280, border:"none", display:"block" }}
+                      scrolling="no"/>
+                  </div>
+                  <div style={{ fontSize:10, color:"rgba(255,255,255,0.25)", marginTop:8, textAlign:"center" }}>
+                    Bureau of Meteorology ·{" "}
+                    <a href={`https://www.bom.gov.au/products/${city.radar}.loop.shtml`}
+                      target="_blank" rel="noopener noreferrer"
+                      style={{ color:"rgba(147,197,253,0.7)", textDecoration:"none" }}>
+                      Full radar ↗
+                    </a>
+                  </div>
+                </div>
+
+                {/* Roadmap */}
+                <div style={{ border:"1px solid rgba(99,102,241,0.25)", borderRadius:14, padding:"14px 16px", marginBottom:12 }}>
+                  <div style={{ fontSize:10, fontWeight:600, letterSpacing:".18em", textTransform:"uppercase", color:"rgba(99,102,241,0.8)", marginBottom:8 }}>
+                    📋 Roadmap
+                  </div>
+                  <div style={{ fontSize:12, color:"rgba(255,255,255,0.38)", lineHeight:2 }}>
+                    · Branding review (name, icon, palette)<br/>
+                    · Haptic feedback on time dial (PWA / native)<br/>
+                    · AI weather event summaries on simple view<br/>
+                    · Pollen data (Ambee / IQAir API)<br/>
+                    · Geolocation auto-detect<br/>
+                    · PWA — install to home screen<br/>
+                    · Push notifications for rain<br/>
+                    · Tide data for coastal cities<br/>
+                    · Vite build + GitHub Actions CI/CD
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Error */}
+        {!loading && !cur && (
+          <div style={{ textAlign:"center", padding:"80px 20px" }}>
+            <div style={{ fontSize:15, color:"rgba(0,0,0,0.4)" }}>Couldn't read the sky.</div>
+            <button onClick={()=>fetchWeather(city)}
+              style={{ marginTop:14, fontSize:13, padding:"8px 20px", borderRadius:99,
+                background:"#0a0a0a", color:"#fff" }}>
+              Try again
+            </button>
+          </div>
+        )}
+
+        {/* Footer */}
+        {!loading && cur && (
+          <div style={{
+            textAlign:"center", padding:"20px 0 8px",
+            fontSize:9, letterSpacing:".18em", textTransform:"uppercase",
+            color: isInsights ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.15)",
+          }}>
+            tempra v1.1
+          </div>
+        )}
+      </div>
+
+      {/* ─── Insights FAB ────────────────────────────────────────────────── */}
+      {!loading && cur && (
+        <button
+          className={`insights-fab ${isInsights?"fab-insights":"fab-simple"}`}
+          onClick={() => setMode(m => m==="simple"?"insights":"simple")}
+        >
+          {isInsights ? "← Simple" : "✦ Insights"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>
