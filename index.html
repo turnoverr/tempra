@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tempra — Read the sky.</title>
+  <meta name="description" content="Beautiful Australian weather. Powered by BOM forecast data." />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
+
+  <!-- React + Babel (CDN — no build step needed) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: #0a0a0f; min-height: 100vh; }
+    body { -webkit-font-smoothing: antialiased; }
+    ::-webkit-scrollbar { display: none; }
+    button { -webkit-tap-highlight-color: transparent; cursor: pointer; }
+
+    @keyframes shimmer {
+      0%   { background-position: 200% center; }
+      100% { background-position: -200% center; }
+    }
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.1; }
+      50%       { opacity: 0.85; }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; }
+      50%       { opacity: 1; }
+    }
+
+    .tempra-shimmer {
+      background: linear-gradient(90deg, #fde68a 0%, #f97316 35%, #fde68a 50%, #f97316 65%, #fde68a 100%);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: shimmer 5s linear infinite;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+
+    // ─── Constants ──────────────────────────────────────────────────────────────
+
+    const CITIES = [
+      { name: "Sydney",    lat: -33.8688, lon: 151.2093, tz: "Australia/Sydney",    radar: "IDR713" },
+      { name: "Melbourne", lat: -37.8136, lon: 144.9631, tz: "Australia/Melbourne", radar: "IDR023" },
+      { name: "Brisbane",  lat: -27.4698, lon: 153.0251, tz: "Australia/Brisbane",  radar: "IDR663" },
+      { name: "Perth",     lat: -31.9505, lon: 115.8605, tz: "Australia/Perth",     radar: "IDR704" },
+      { name: "Adelaide",  lat: -34.9285, lon: 138.6007, tz: "Australia/Adelaide",  radar: "IDR643" },
+      { name: "Canberra",  lat: -35.2809, lon: 149.1300, tz: "Australia/Sydney",    radar: "IDR403" },
+      { name: "Darwin",    lat: -12.4634, lon: 130.8456, tz: "Australia/Darwin",    radar: "IDR632" },
+      { name: "Hobart",    lat: -42.8821, lon: 147.3272, tz: "Australia/Hobart",    radar: "IDR023" },
+    ];
+
+    const WMO = {
+      0:  { label: "Clear Sky",     icon: "☀️",  severity: 0 },
+      1:  { label: "Mainly Clear",  icon: "🌤️",  severity: 0 },
+      2:  { label: "Partly Cloudy", icon: "⛅",  severity: 1 },
+      3:  { label: "Overcast",      icon: "☁️",  severity: 1 },
+      45: { label: "Foggy",         icon: "🌫️",  severity: 2 },
+      48: { label: "Icy Fog",       icon: "🌫️",  severity: 2 },
+      51: { label: "Light Drizzle", icon: "🌦️",  severity: 2 },
+      53: { label: "Drizzle",       icon: "🌦️",  severity: 2 },
+      55: { label: "Heavy Drizzle", icon: "🌧️",  severity: 3 },
+      61: { label: "Light Rain",    icon: "🌧️",  severity: 2 },
+      63: { label: "Rain",          icon: "🌧️",  severity: 3 },
+      65: { label: "Heavy Rain",    icon: "🌧️",  severity: 4 },
+      71: { label: "Light Snow",    icon: "🌨️",  severity: 3 },
+      73: { label: "Snow",          icon: "❄️",  severity: 4 },
+      75: { label: "Heavy Snow",    icon: "❄️",  severity: 5 },
+      80: { label: "Light Showers", icon: "🌦️",  severity: 2 },
+      81: { label: "Showers",       icon: "🌧️",  severity: 3 },
+      82: { label: "Heavy Showers", icon: "⛈️",  severity: 4 },
+      95: { label: "Thunderstorm",  icon: "⛈️",  severity: 5 },
+      96: { label: "Hail Storm",    icon: "⛈️",  severity: 5 },
+      99: { label: "Heavy Hail",    icon: "⛈️",  severity: 5 },
+    };
+    const getCode = (c) => WMO[c] || { label: "Unknown", icon: "🌡️", severity: 0 };
+
+    const SEV_COLOR = ["#f59e0b","#94a3b8","#38bdf8","#3b82f6","#6366f1","#8b5cf6"];
+    const DAYS   = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+    // ─── Utilities ───────────────────────────────────────────────────────────────
+
+    function timeToMins(str) {
+      if (!str) return 0;
+      const t = str.includes("T") ? str.split("T")[1] : str;
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + (m || 0);
+    }
+
+    function fmtTime(str) {
+      if (!str) return "—";
+      const t = str.includes("T") ? str.split("T")[1] : str;
+      const [h, m] = t.split(":").map(Number);
+      return `${h % 12 || 12}:${String(m || 0).padStart(2,"0")}${h >= 12 ? "pm" : "am"}`;
+    }
+
+    function lerpHex(a, b, t) {
+      const p = s => parseInt(s.replace("#",""), 16);
+      const ai = p(a), bi = p(b);
+      const r  = Math.round(((ai>>16)&0xff)*(1-t)+((bi>>16)&0xff)*t);
+      const g  = Math.round(((ai>>8) &0xff)*(1-t)+((bi>>8) &0xff)*t);
+      const bl = Math.round(((ai)    &0xff)*(1-t)+((bi)    &0xff)*t);
+      return `#${r.toString(16).padStart(2,"0")}${g.toString(16).padStart(2,"0")}${bl.toString(16).padStart(2,"0")}`;
+    }
+
+    function skyGradient(nowMins, riseMins, setMins) {
+      const ph = [
+        { at: 0,                    top:"#03001e", bot:"#07052e" },
+        { at: riseMins - 80,        top:"#0d1b4b", bot:"#1a0a3e" },
+        { at: riseMins - 25,        top:"#6b21a8", bot:"#c0392b" },
+        { at: riseMins,             top:"#dc4f00", bot:"#f5a623" },
+        { at: riseMins + 50,        top:"#1565c0", bot:"#e65100" },
+        { at: riseMins + 120,       top:"#1565c0", bot:"#42a5f5" },
+        { at: (riseMins+setMins)/2, top:"#0d47a1", bot:"#1976d2" },
+        { at: setMins - 120,        top:"#1565c0", bot:"#42a5f5" },
+        { at: setMins - 45,         top:"#92140c", bot:"#f57f17" },
+        { at: setMins,              top:"#7b1a00", bot:"#e65100" },
+        { at: setMins + 40,         top:"#4a0a6b", bot:"#7b1a4f" },
+        { at: setMins + 100,        top:"#0d0621", bot:"#07052e" },
+        { at: 1440,                 top:"#03001e", bot:"#07052e" },
+      ];
+      let p1 = ph[0], p2 = ph[ph.length-1];
+      for (let i = 0; i < ph.length-1; i++) {
+        if (nowMins >= ph[i].at && nowMins < ph[i+1].at) { p1=ph[i]; p2=ph[i+1]; break; }
+      }
+      const t = p2.at===p1.at ? 0 : (nowMins-p1.at)/(p2.at-p1.at);
+      return { top: lerpHex(p1.top,p2.top,t), bot: lerpHex(p1.bot,p2.bot,t) };
+    }
+
+    // ─── Brand components ────────────────────────────────────────────────────────
+
+    function TempraIcon({ size = 32 }) {
+      const id = `ti_${size}`;
+      return (
+        <svg width={size} height={size} viewBox="0 0 64 64" style={{display:"block",flexShrink:0}}>
+          <defs>
+            <radialGradient id={`${id}_g1`} cx="40%" cy="30%" r="70%">
+              <stop offset="0%"   stopColor="#fde68a"/>
+              <stop offset="55%"  stopColor="#f97316"/>
+              <stop offset="100%" stopColor="#7b1a00"/>
+            </radialGradient>
+            <radialGradient id={`${id}_g2`} cx="50%" cy="50%" r="50%">
+              <stop offset="0%"   stopColor="rgba(255,255,255,0.18)"/>
+              <stop offset="100%" stopColor="rgba(255,255,255,0)"/>
+            </radialGradient>
+            <clipPath id={`${id}_c`}><rect width="64" height="64" rx="16"/></clipPath>
+          </defs>
+          <g clipPath={`url(#${id}_c)`}>
+            <rect width="64" height="64" fill={`url(#${id}_g1)`}/>
+            <rect width="64" height="64" fill={`url(#${id}_g2)`}/>
+            <line x1="10" y1="42" x2="54" y2="42" stroke="rgba(255,255,255,0.22)" strokeWidth="1"/>
+            <path d="M 10 42 Q 32 12 54 42" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="1.5" strokeDasharray="3 4"/>
+            <circle cx="32" cy="26" r="8"  fill="rgba(255,255,255,0.95)"/>
+            <circle cx="32" cy="26" r="13" fill="rgba(255,255,255,0.10)"/>
+          </g>
+        </svg>
+      );
+    }
+
+    function TempraWordmark({ size = "sm" }) {
+      const fs = size === "lg" ? 36 : 22;
+      return (
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <TempraIcon size={size==="lg" ? 38 : 28}/>
+          <div>
+            <div className="tempra-shimmer" style={{
+              fontFamily:"'Cormorant Garamond',Georgia,serif",
+              fontSize:fs, fontWeight:300, letterSpacing:"-0.03em", lineHeight:1,
+            }}>
+              tempra
+            </div>
+            {size === "lg" && (
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,letterSpacing:"0.3em",textTransform:"uppercase",color:"rgba(255,255,255,0.35)",marginTop:3}}>
+                Read the sky.
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Primitives ──────────────────────────────────────────────────────────────
+
+    function SLabel({ children }) {
+      return (
+        <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,letterSpacing:"0.28em",textTransform:"uppercase",color:"rgba(255,255,255,0.3)",margin:"0 0 10px",fontWeight:700}}>
+          {children}
+        </p>
+      );
+    }
+
+    function StatRow({ items }) {
+      const filtered = items.filter(Boolean);
+      return (
+        <div style={{display:"flex",background:"rgba(255,255,255,0.05)",borderRadius:12,overflow:"hidden"}}>
+          {filtered.map(([l,v],i) => (
+            <div key={l} style={{flex:1,padding:"10px 8px",textAlign:"center",borderRight:i<filtered.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,letterSpacing:"0.2em",textTransform:"uppercase",color:"rgba(255,255,255,0.35)"}}>{l}</div>
+              <div style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,marginTop:3,color:"#fff"}}>{v}</div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ─── TempBar ─────────────────────────────────────────────────────────────────
+
+    function TempBar({ min, max, weekMin, weekMax, isToday }) {
+      const span  = weekMax - weekMin || 1;
+      const left  = ((min - weekMin) / span) * 100;
+      const width = Math.max(((max - min) / span) * 100, 8);
+      return (
+        <div style={{position:"relative",height:5,borderRadius:99,background:"rgba(255,255,255,0.08)",overflow:"hidden"}}>
+          <div style={{
+            position:"absolute",left:`${left}%`,width:`${width}%`,height:"100%",borderRadius:99,
+            background: isToday ? "linear-gradient(90deg,#38bdf8,#f97316)" : "linear-gradient(90deg,#60a5fa,#fb923c)",
+            opacity: isToday ? 1 : 0.55,
+            transition:"all 0.8s cubic-bezier(.4,0,.2,1)",
+          }}/>
+        </div>
+      );
+    }
+
+    // ─── HourlyScroll ────────────────────────────────────────────────────────────
+
+    function HourlyScroll({ hourly, dateStr }) {
+      if (!hourly) return null;
+      const now = new Date();
+      const items = [];
+      for (let i = 0; i < hourly.time.length && items.length < 18; i++) {
+        const t = new Date(hourly.time[i]);
+        if (dateStr ? !hourly.time[i].startsWith(dateStr) : t < now) continue;
+        items.push({
+          time: t.toLocaleTimeString("en-AU",{hour:"numeric",hour12:true}),
+          temp: Math.round(hourly.temperature_2m[i]),
+          rain: Math.round(hourly.precipitation_probability?.[i] || 0),
+          code: hourly.weathercode[i],
+        });
+      }
+      if (!items.length) return null;
+      const maxT = Math.max(...items.map(x=>x.temp));
+      const minT = Math.min(...items.map(x=>x.temp));
+      return (
+        <div style={{overflowX:"auto",marginLeft:-4,marginRight:-4}}>
+          <div style={{display:"flex",gap:4,minWidth:"max-content",padding:"0 4px 4px"}}>
+            {items.map((item,i) => {
+              const frac = maxT===minT ? 0.5 : (item.temp-minT)/(maxT-minT);
+              const barH = Math.round(frac*40+12);
+              const isNow = !dateStr && i===0;
+              return (
+                <div key={i} style={{
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:2,
+                  width:48,padding:"8px 3px 6px",borderRadius:12,
+                  background:isNow?"rgba(255,255,255,0.11)":"transparent",
+                  border:isNow?"1px solid rgba(255,255,255,0.14)":"1px solid transparent",
+                }}>
+                  <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(255,255,255,0.38)",letterSpacing:0.3}}>{item.time}</span>
+                  <span style={{fontSize:15}}>{getCode(item.code).icon}</span>
+                  <div style={{height:54,display:"flex",alignItems:"flex-end"}}>
+                    <div style={{width:18,height:barH,borderRadius:"3px 3px 0 0",background:"linear-gradient(to top,#0ea5e9,#bae6fd)",opacity:0.7}}/>
+                  </div>
+                  <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:15,color:"#fff"}}>{item.temp}°</span>
+                  {item.rain > 15
+                    ? <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"#7dd3fc"}}>{item.rain}%</span>
+                    : <span style={{opacity:0,fontSize:9}}>·</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── SunArc ──────────────────────────────────────────────────────────────────
+
+    function SunArc({ riseMins, setMins, nowMins }) {
+      const W=300, H=76, pad=18;
+      const pt = p => ({ x: pad+p*(W-2*pad), y: H-Math.sin(Math.PI*p)*H });
+      const pct = Math.max(0,Math.min(1,(nowMins-riseMins)/(setMins-riseMins)));
+      const sun = pt(pct);
+      const isDay = nowMins>=riseMins && nowMins<=setMins;
+      let d = `M ${pad} ${H}`;
+      for (let i=0;i<=50;i++) { const p=pt(i/50); d+=` L ${p.x} ${p.y}`; }
+      return (
+        <svg viewBox={`0 0 ${W} ${H+16}`} style={{width:"100%",maxWidth:310,display:"block",margin:"0 auto"}}>
+          <defs>
+            <linearGradient id="arcG" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%"   stopColor="#f97316" stopOpacity="0.1"/>
+              <stop offset="50%"  stopColor="#fde68a" stopOpacity="0.55"/>
+              <stop offset="100%" stopColor="#f97316" stopOpacity="0.1"/>
+            </linearGradient>
+          </defs>
+          <path d={d} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1.5" strokeDasharray="3 5"/>
+          <path d={d} fill="none" stroke="url(#arcG)" strokeWidth="2.5" strokeDasharray={`${pct*680} 9999`}/>
+          {isDay && <>
+            <circle cx={sun.x} cy={sun.y} r={12} fill="#fbbf24" opacity={0.15}/>
+            <circle cx={sun.x} cy={sun.y} r={7}  fill="#fde68a"/>
+          </>}
+          <text x={pad}     y={H+14} fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="middle" fontFamily="DM Sans,sans-serif">rise</text>
+          <text x={W-pad}   y={H+14} fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="end"    fontFamily="DM Sans,sans-serif">set</text>
+        </svg>
+      );
+    }
+
+    // ─── Milestones ──────────────────────────────────────────────────────────────
+
+    function Milestones({ sunriseStr, sunsetStr, uvMax, overnightLow }) {
+      const nowMins  = new Date().getHours()*60 + new Date().getMinutes();
+      const riseMins = timeToMins(sunriseStr);
+      const setMins  = timeToMins(sunsetStr);
+      const uvMins   = (riseMins+setMins)/2;
+      const uvH=Math.floor(uvMins/60), uvM=Math.round(uvMins%60);
+      const uvTime=`${uvH%12||12}:${String(uvM).padStart(2,"0")}${uvH>=12?"pm":"am"}`;
+      const items = [
+        { icon:"🌅", label:"Sunrise",       sub:"Golden hour begins", val:fmtTime(sunriseStr), mins:riseMins },
+        uvMax!=null && { icon:"🔆", label:`UV Index ${uvMax}`, sub:"Peak exposure", val:uvTime, mins:uvMins },
+        { icon:"🌇", label:"Sunset",        sub:"Golden hour ends",   val:fmtTime(sunsetStr),  mins:setMins  },
+        overnightLow!=null && { icon:"🌡️", label:"Overnight Low", sub:"Minimum temperature", val:`${overnightLow}°`, mins:1380 },
+      ].filter(Boolean);
+      return (
+        <div>
+          {items.map((m,i) => {
+            const past = m.mins < nowMins;
+            return (
+              <div key={i} style={{
+                display:"flex",alignItems:"center",gap:14,padding:"10px 0",
+                borderBottom:i<items.length-1?"1px solid rgba(255,255,255,0.05)":"none",
+                opacity:past?0.35:1,transition:"opacity 0.4s",
+              }}>
+                <div style={{
+                  width:40,height:40,borderRadius:12,flexShrink:0,
+                  background:past?"rgba(255,255,255,0.04)":"rgba(255,255,255,0.09)",
+                  border:`1px solid rgba(255,255,255,${past?0.05:0.14})`,
+                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
+                }}>{m.icon}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,color:"#fff"}}>{m.label}</div>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:1}}>{m.sub}</div>
+                </div>
+                <div style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:16,color:past?"rgba(255,255,255,0.3)":"#fff"}}>
+                  {m.val}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ─── RainPeriods ─────────────────────────────────────────────────────────────
+
+    function RainPeriods({ hourly }) {
+      if (!hourly) return null;
+      const now=new Date(), periods=[];
+      let inRain=false, cur=null;
+      for (let i=0;i<Math.min(48,hourly.time.length);i++) {
+        const t=new Date(hourly.time[i]);
+        if (t<now) continue;
+        const prob=hourly.precipitation_probability?.[i]||0;
+        const mm=hourly.precipitation?.[i]||0;
+        if (!inRain&&prob>40) { inRain=true; cur={start:t,prob,mm}; }
+        else if (inRain&&prob<=20) { periods.push({...cur,end:t}); inRain=false; cur=null; }
+        else if (inRain) { cur.mm+=mm; cur.prob=Math.max(cur.prob,prob); }
+      }
+      if (inRain&&cur) periods.push({...cur,end:null});
+      if (!periods.length) return (
+        <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,0.35)",margin:0}}>
+          No significant rain expected today ☀️
+        </p>
+      );
+      return (
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          {periods.map((p,i) => (
+            <div key={i} style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:38,height:38,borderRadius:10,flexShrink:0,background:"rgba(56,189,248,0.1)",border:"1px solid rgba(56,189,248,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>💧</div>
+              <div style={{flex:1}}>
+                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,color:"#bae6fd"}}>
+                  {p.start.toLocaleTimeString("en-AU",{hour:"numeric",minute:"2-digit",hour12:true})}
+                  {p.end ? ` – ${p.end.toLocaleTimeString("en-AU",{hour:"numeric",minute:"2-digit",hour12:true})}` : " onwards"}
+                </div>
+                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.38)",marginTop:1}}>
+                  {p.prob}% chance{p.mm>0.1?` · ~${p.mm.toFixed(1)}mm`:""}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ─── DayRow ──────────────────────────────────────────────────────────────────
+
+    function DayRow({ date, data, hourly, weekMin, weekMax }) {
+      const [open, setOpen] = useState(false);
+      const code   = getCode(data.code);
+      const accent = SEV_COLOR[code.severity] || "#38bdf8";
+      const dateStr = date.toISOString().slice(0,10);
+
+      const dayHourly = hourly ? (() => {
+        const idx = hourly.time.map((t,i)=>t.startsWith(dateStr)?i:-1).filter(i=>i>=0);
+        if (!idx.length) return null;
+        return {
+          time:                      idx.map(i=>hourly.time[i]),
+          temperature_2m:            idx.map(i=>hourly.temperature_2m[i]),
+          apparent_temperature:      idx.map(i=>hourly.apparent_temperature[i]),
+          precipitation_probability: idx.map(i=>hourly.precipitation_probability?.[i]||0),
+          precipitation:             idx.map(i=>hourly.precipitation?.[i]||0),
+          weathercode:               idx.map(i=>hourly.weathercode[i]),
+        };
+      })() : null;
+
+      return (
+        <div style={{
+          borderRadius:18,overflow:"hidden",
+          background:open?"rgba(255,255,255,0.09)":"rgba(255,255,255,0.04)",
+          border:`1px solid rgba(255,255,255,${open?0.12:0.06})`,
+          transition:"background 0.25s,border 0.25s",
+        }}>
+          <button onClick={()=>setOpen(o=>!o)} style={{
+            width:"100%",background:"none",border:"none",
+            padding:"13px 16px",display:"flex",alignItems:"center",gap:14,
+            color:"#fff",textAlign:"left",position:"relative",
+          }}>
+            <div style={{position:"absolute",left:0,top:"20%",bottom:"20%",width:3,borderRadius:99,background:accent,opacity:0.7}}/>
+            <span style={{fontSize:26,flexShrink:0,marginLeft:6}}>{code.icon}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"baseline",gap:7}}>
+                <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:18,color:"#fff"}}>{DAYS[date.getDay()]}</span>
+                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.35)"}}>{date.getDate()} {MONTHS[date.getMonth()]}</span>
+              </div>
+              <div style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:13,fontStyle:"italic",color:"rgba(255,255,255,0.5)",marginTop:1}}>{code.label}</div>
+              <div style={{marginTop:6,paddingRight:4}}>
+                <TempBar min={data.min} max={data.max} weekMin={weekMin} weekMax={weekMax}/>
+              </div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+                <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:24,color:"#fff"}}>{data.max}°</span>
+                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,color:"rgba(255,255,255,0.35)"}}>{data.min}°</span>
+              </div>
+              {data.rainProb>10 && <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"#7dd3fc"}}>💧 {data.rainProb}%</span>}
+            </div>
+            <span style={{fontSize:11,color:"rgba(255,255,255,0.25)",flexShrink:0,marginLeft:4,display:"inline-block",transform:open?"rotate(180deg)":"none",transition:"transform 0.25s"}}>▾</span>
+          </button>
+
+          {open && (
+            <div style={{padding:"0 16px 18px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
+              {dayHourly && (
+                <div style={{marginTop:14}}>
+                  <SLabel>Hourly</SLabel>
+                  <HourlyScroll hourly={dayHourly} dateStr={dateStr}/>
+                </div>
+              )}
+              <div style={{marginTop:14}}>
+                <SLabel>Temperature</SLabel>
+                <StatRow items={[["High",`${data.max}°`],["Low",`${data.min}°`],["Feels",`${data.feelsMax}°`]]}/>
+              </div>
+              <div style={{marginTop:10}}>
+                <SLabel>Rain</SLabel>
+                <StatRow items={[["Chance",`${data.rainProb}%`],["Total",`${data.rainMm.toFixed(1)}mm`],data.rainHours>0&&["Hours",`${data.rainHours}h`]]}/>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── App ─────────────────────────────────────────────────────────────────────
+
+    function App() {
+      const [city,    setCity]    = useState(CITIES[0]);
+      const [weather, setWeather] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [tab,     setTab]     = useState("forecast");
+      const [now,     setNow]     = useState(new Date());
+
+      useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), 60000);
+        return () => clearInterval(id);
+      }, []);
+
+      const fetchWeather = useCallback(async (c) => {
+        setLoading(true);
+        try {
+          const res = await fetch(
+            `https://api.open-meteo.com/v1/forecast` +
+            `?latitude=${c.lat}&longitude=${c.lon}` +
+            `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weathercode,windspeed_10m,precipitation` +
+            `&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weathercode` +
+            `&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max,` +
+            `precipitation_sum,precipitation_probability_max,precipitation_hours,sunrise,sunset,uv_index_max` +
+            `&timezone=${c.tz}&forecast_days=7`
+          );
+          setWeather(await res.json());
+        } catch(e) { console.error("Tempra:", e); }
+        setLoading(false);
+      }, []);
+
+      useEffect(() => { fetchWeather(city); }, [city]);
+
+      const cur    = weather?.current;
+      const daily  = weather?.daily;
+      const hourly = weather?.hourly;
+
+      const sunriseStr = daily?.sunrise?.[0];
+      const sunsetStr  = daily?.sunset?.[0];
+      const riseMins   = timeToMins(sunriseStr) || 360;
+      const setMins    = timeToMins(sunsetStr)  || 1140;
+      const nowMins    = now.getHours()*60 + now.getMinutes();
+      const { top, bot } = skyGradient(nowMins, riseMins, setMins);
+      const isNight = nowMins < riseMins || nowMins > setMins;
+      const weekMin = daily ? Math.min(...daily.temperature_2m_min) : 0;
+      const weekMax = daily ? Math.max(...daily.temperature_2m_max) : 30;
+
+      return (
+        <div style={{minHeight:"100vh",background:`linear-gradient(172deg,${top} 0%,${bot} 100%)`,transition:"background 8s ease",paddingBottom:64}}>
+
+          {/* Stars */}
+          {isNight && (
+            <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:0,overflow:"hidden"}}>
+              {Array.from({length:55}).map((_,i) => (
+                <div key={i} style={{
+                  position:"absolute",
+                  left:`${(i*137.508)%100}%`, top:`${(i*93.7)%70}%`,
+                  width:i%7===0?2:1, height:i%7===0?2:1,
+                  background:"#fff", borderRadius:"50%",
+                  opacity:0.15+((i*0.19)%0.6),
+                  animation:`twinkle ${2.2+(i%5)*0.7}s ${(i*0.41)%5}s ease-in-out infinite`,
+                }}/>
+              ))}
+            </div>
+          )}
+
+          <div style={{position:"relative",zIndex:1}}>
+
+            {/* Header */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"20px 18px 0",flexWrap:"wrap",gap:12}}>
+              <TempraWordmark size="sm"/>
+              <div style={{position:"relative"}}>
+                <select value={city.name} onChange={e=>setCity(CITIES.find(c=>c.name===e.target.value))} style={{
+                  appearance:"none",WebkitAppearance:"none",
+                  background:"rgba(0,0,0,0.28)",backdropFilter:"blur(12px)",
+                  border:"1px solid rgba(255,255,255,0.14)",borderRadius:20,
+                  color:"#fff",padding:"8px 36px 8px 16px",fontSize:13,
+                  outline:"none",fontFamily:"'DM Sans',sans-serif",cursor:"pointer",
+                }}>
+                  {CITIES.map(c => <option key={c.name} value={c.name} style={{background:"#0f172a"}}>{c.name}</option>)}
+                </select>
+                <span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:10,color:"rgba(255,255,255,0.4)",pointerEvents:"none"}}>▾</span>
+              </div>
+            </div>
+
+            {/* Loading */}
+            {loading && (
+              <div style={{textAlign:"center",padding:"120px 20px"}}>
+                <TempraIcon size={52}/>
+                <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:22,fontStyle:"italic",color:"rgba(255,255,255,0.4)",marginTop:18}}>
+                  Reading the sky…
+                </p>
+              </div>
+            )}
+
+            {!loading && cur && daily && (
+              <>
+                {/* TODAY HERO */}
+                <div style={{margin:"18px 14px 0",background:"rgba(255,255,255,0.065)",backdropFilter:"blur(24px)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:26,overflow:"hidden"}}>
+
+                  {/* Sky strip */}
+                  <div style={{height:3,background:`linear-gradient(90deg,${top},${bot},${top})`,opacity:0.8}}/>
+
+                  {/* Temp block */}
+                  <div style={{padding:"22px 22px 18px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div>
+                        <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,letterSpacing:"0.28em",textTransform:"uppercase",color:"rgba(255,255,255,0.35)",marginBottom:6}}>
+                          {now.toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long"})}
+                        </div>
+                        <div style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:96,fontWeight:300,lineHeight:1,letterSpacing:"-0.04em",color:"#fff"}}>
+                          {Math.round(cur.temperature_2m)}°
+                        </div>
+                        <div style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,fontStyle:"italic",fontWeight:300,color:"rgba(255,255,255,0.65)",marginTop:4}}>
+                          {getCode(cur.weathercode).label}
+                        </div>
+                        <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,0.38)",marginTop:6,lineHeight:1.8}}>
+                          Feels like {Math.round(cur.apparent_temperature)}°C<br/>
+                          {Math.round(daily.temperature_2m_min[0])}° – {Math.round(daily.temperature_2m_max[0])}° · Humidity {cur.relative_humidity_2m}%
+                        </div>
+                      </div>
+                      <div style={{fontSize:78,lineHeight:1,paddingTop:4,flexShrink:0}}>{getCode(cur.weathercode).icon}</div>
+                    </div>
+
+                    {/* Stat pills */}
+                    <div style={{display:"flex",gap:8,marginTop:18,flexWrap:"wrap"}}>
+                      {[
+                        {icon:"💨",val:`${Math.round(cur.windspeed_10m)} km/h`,label:"wind"},
+                        {icon:"💧",val:`${daily.precipitation_probability_max[0]}%`,label:"rain"},
+                        {icon:"🔆",val:daily.uv_index_max?.[0]??"—",label:"UV"},
+                        {icon:"💦",val:`${cur.relative_humidity_2m}%`,label:"humid"},
+                      ].map(s => (
+                        <div key={s.label} style={{display:"flex",alignItems:"center",gap:5,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:99,padding:"5px 12px"}}>
+                          <span style={{fontSize:12}}>{s.icon}</span>
+                          <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"#fff",fontWeight:600}}>{s.val}</span>
+                          <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.35)"}}>{s.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Sun arc */}
+                  <div style={{padding:"14px 22px 10px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.35)",marginBottom:4}}>
+                      <span>🌅 {fmtTime(sunriseStr)}</span>
+                      <span style={{letterSpacing:"0.15em",fontSize:10}}>{isNight?"NIGHT":"DAY"}</span>
+                      <span>🌇 {fmtTime(sunsetStr)}</span>
+                    </div>
+                    <SunArc riseMins={riseMins} setMins={setMins} nowMins={nowMins}/>
+                  </div>
+
+                  {/* Milestones */}
+                  <div style={{padding:"14px 22px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+                    <SLabel>Today's Milestones</SLabel>
+                    <Milestones
+                      sunriseStr={sunriseStr} sunsetStr={sunsetStr}
+                      uvMax={daily.uv_index_max?.[0]}
+                      overnightLow={daily.temperature_2m_min?.[1]!=null?Math.round(daily.temperature_2m_min[1]):null}
+                    />
+                  </div>
+
+                  {/* Hourly */}
+                  <div style={{padding:"14px 22px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+                    <SLabel>Hourly Forecast</SLabel>
+                    <HourlyScroll hourly={hourly}/>
+                  </div>
+
+                  {/* Rain periods */}
+                  <div style={{padding:"14px 22px 20px"}}>
+                    <SLabel>Rain Periods</SLabel>
+                    <RainPeriods hourly={hourly}/>
+                  </div>
+                </div>
+
+                {/* Tabs */}
+                <div style={{display:"flex",gap:6,padding:"14px 14px 10px"}}>
+                  {[["forecast","7-Day Forecast"],["rain","Rain & Radar"]].map(([id,lbl]) => (
+                    <button key={id} onClick={()=>setTab(id)} style={{
+                      padding:"8px 20px",borderRadius:20,border:"none",
+                      fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,letterSpacing:"0.04em",
+                      background:tab===id?"rgba(255,255,255,0.18)":"rgba(255,255,255,0.06)",
+                      color:tab===id?"#fff":"rgba(255,255,255,0.4)",
+                      backdropFilter:"blur(8px)",transition:"all 0.2s",
+                    }}>{lbl}</button>
+                  ))}
+                </div>
+
+                {/* 7-Day */}
+                {tab==="forecast" && (
+                  <div style={{display:"flex",flexDirection:"column",gap:6,padding:"0 14px"}}>
+                    {daily.time.slice(1).map((d,i) => (
+                      <DayRow key={i} date={new Date(d+"T00:00:00")}
+                        data={{
+                          code:      daily.weathercode[i+1],
+                          max:       Math.round(daily.temperature_2m_max[i+1]),
+                          min:       Math.round(daily.temperature_2m_min[i+1]),
+                          feelsMax:  Math.round(daily.apparent_temperature_max[i+1]),
+                          rainProb:  daily.precipitation_probability_max[i+1],
+                          rainMm:    daily.precipitation_sum[i+1],
+                          rainHours: daily.precipitation_hours[i+1],
+                        }}
+                        hourly={hourly} weekMin={weekMin} weekMax={weekMax}
+                      />
+                    ))}
+                    <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(255,255,255,0.2)",textAlign:"center",letterSpacing:"0.1em",padding:"6px 0 0"}}>
+                      temperature range · weekly scale
+                    </p>
+                  </div>
+                )}
+
+                {/* Rain & Radar */}
+                {tab==="rain" && (
+                  <div style={{padding:"0 14px",display:"flex",flexDirection:"column",gap:10}}>
+                    <div style={{background:"rgba(255,255,255,0.065)",backdropFilter:"blur(12px)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:20,padding:"16px 18px"}}>
+                      <SLabel>7-Day Rain Outlook</SLabel>
+                      {daily.time.map((d,i) => {
+                        const date=new Date(d+"T00:00:00");
+                        const pct=Math.min(100,daily.precipitation_probability_max[i]||0);
+                        const col=pct>70?"#38bdf8":pct>40?"#60a5fa":"#93c5fd";
+                        return (
+                          <div key={i} style={{marginBottom:14}}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                              <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,color:i===0?"#bae6fd":"#fff"}}>
+                                {i===0?"Today":DAYS[date.getDay()]}
+                                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.32)",marginLeft:7}}>{date.getDate()} {MONTHS[date.getMonth()]}</span>
+                              </span>
+                              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,0.4)",display:"flex",gap:10}}>
+                                {daily.precipitation_sum[i]>0   && <span>{daily.precipitation_sum[i].toFixed(1)}mm</span>}
+                                {daily.precipitation_hours[i]>0 && <span>{daily.precipitation_hours[i]}h</span>}
+                              </div>
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <div style={{flex:1,height:5,background:"rgba(255,255,255,0.08)",borderRadius:99,overflow:"hidden"}}>
+                                <div style={{width:`${pct}%`,height:"100%",background:col,borderRadius:99,transition:"width 0.8s ease"}}/>
+                              </div>
+                              <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:col,minWidth:28,textAlign:"right"}}>{pct}%</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{background:"rgba(255,255,255,0.065)",backdropFilter:"blur(12px)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:20,padding:"16px 18px"}}>
+                      <SLabel>BOM Radar — {city.name}</SLabel>
+                      <div style={{borderRadius:14,overflow:"hidden",background:"#000d1a"}}>
+                        <iframe title="BOM Radar"
+                          src={`https://www.bom.gov.au/products/${city.radar}.loop.shtml`}
+                          style={{width:"100%",height:340,border:"none",display:"block"}}
+                          scrolling="no"/>
+                      </div>
+                      <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,0.28)",margin:"10px 0 0",textAlign:"center"}}>
+                        Bureau of Meteorology · <a href={`https://www.bom.gov.au/products/${city.radar}.loop.shtml`} target="_blank" rel="noopener noreferrer" style={{color:"#7dd3fc",textDecoration:"none"}}>Open full radar ↗</a>
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Footer */}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"32px 24px 0"}}>
+                  <TempraIcon size={18}/>
+                  <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:14,fontStyle:"italic",color:"rgba(255,255,255,0.2)",letterSpacing:"0.05em"}}>
+                    tempra · Read the sky.
+                  </span>
+                </div>
+              </>
+            )}
+
+            {/* Error */}
+            {!loading && !cur && (
+              <div style={{textAlign:"center",padding:"80px 20px"}}>
+                <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,fontStyle:"italic",color:"rgba(255,100,100,0.6)"}}>
+                  Couldn't read the sky right now.
+                </p>
+                <button onClick={()=>fetchWeather(city)} style={{marginTop:16,fontFamily:"'DM Sans',sans-serif",fontSize:13,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.14)",borderRadius:20,color:"#fff",padding:"8px 20px"}}>
+                  Try again
+                </button>
+              </div>
+            )}
+
+          </div>
+        </div>
+      );
+    }
+
+    // Mount
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App/>);
+  </script>
+</body>
+</html>
