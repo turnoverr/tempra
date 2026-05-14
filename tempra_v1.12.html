@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<title>tempra v1.12</title>
+<meta name="description" content="Read the sky."/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100vh;background:#fff;color:#0a0a0a;font-family:'Inter',-apple-system,sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior:none}
+::-webkit-scrollbar{display:none}
+button{font-family:inherit;border:none;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
+select{font-family:inherit}
+.hidden{display:none!important}
+#app{max-width:480px;margin:0 auto;min-height:100vh;position:relative;padding-bottom:80px}
+
+/* Header */
+#header{display:flex;justify-content:space-between;align-items:flex-start;padding:22px 20px 0}
+#city-select{appearance:none;border:none;outline:none;background:transparent;font-size:13px;font-weight:500;color:rgba(0,0,0,0.45);cursor:pointer}
+
+/* Hero */
+#hero{padding:28px 20px 12px;text-align:center}
+#day-label{font-size:14px;font-weight:300;color:rgba(0,0,0,0.42);margin-bottom:16px;letter-spacing:0;text-transform:none}
+#date-label{display:none}
+#temp-big{font-size:80px;font-weight:200;line-height:1;letter-spacing:-4px;color:#0a0a0a}
+#temp-big span{font-size:44px;font-weight:200}
+#condition-row{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:10px}
+#condition-label{font-size:17px;font-weight:300;color:rgba(0,0,0,0.5)}
+#meta-row{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;font-size:12px;color:rgba(0,0,0,0.38);padding:0 20px 18px}
+
+/* Briefing */
+#briefing-card{margin:0 20px 0;padding:18px 8px;background:transparent;border:none;border-radius:0;font-size:13px;line-height:1.8;color:rgba(0,0,0,0.52);font-weight:300;font-style:italic;text-align:center;min-height:44px}
+
+/* Divider */
+.div{height:1px;background:rgba(0,0,0,0.06);margin:0 20px}
+
+/* Hourly strip */
+#hourly-outer{overflow-x:auto;padding:18px 0 16px}
+#hourly-inner{display:flex;min-width:max-content;align-items:flex-start;padding:0 20px}
+.hour-item{display:flex;flex-direction:column;align-items:center;padding:0 14px;min-width:68px;transition:opacity .2s}
+.hour-item.past{opacity:.28}
+.hour-time{font-size:10px;font-weight:400;color:rgba(0,0,0,0.4);margin-bottom:8px;letter-spacing:.02em;white-space:nowrap}
+.hour-item.current .hour-time{font-weight:600;color:#0a0a0a}
+.hour-temp{font-size:12px;font-weight:400;color:rgba(0,0,0,0.45);margin-top:8px}
+.hour-item.current .hour-temp{font-size:15px;font-weight:600;color:#0a0a0a}
+.hour-dot{width:4px;height:4px;border-radius:50%;background:#0a0a0a;margin-top:4px}
+.hour-day{font-size:8px;font-weight:600;color:rgba(0,0,0,0.3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px;white-space:nowrap}
+
+/* Dial */
+#dial-section{padding:16px 0 8px;text-align:center}
+#dial-readout{text-align:center;margin-bottom:10px;min-height:56px}
+#dial-time-label{font-size:11px;color:rgba(0,0,0,0.4);letter-spacing:.05em;margin-bottom:2px}
+#dial-temp{font-size:42px;font-weight:200;color:#0a0a0a;line-height:1;letter-spacing:-1px}
+#dial-temp span{font-size:24px;font-weight:300}
+#dial-feels{font-size:12px;color:rgba(0,0,0,0.4);margin-top:3px}
+#dial-rail{position:relative;height:56px}
+#dial-centre{position:absolute;left:50%;top:0;bottom:0;width:2px;background:#0a0a0a;transform:translateX(-50%);z-index:2;border-radius:1px}
+#dial-track{overflow-x:auto;height:100%;display:flex;align-items:center;-webkit-overflow-scrolling:touch;cursor:grab;position:relative}
+#dial-track:active{cursor:grabbing}
+#dial-spacer-l,#dial-spacer-r{flex-shrink:0;width:50%}
+.dial-tick{flex-shrink:0;width:28px;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:3px}
+.tick-bar{width:1.5px;background:rgba(0,0,0,0.12);border-radius:1px;transition:height .15s}
+.tick-bar.tall{height:20px;background:rgba(0,0,0,0.2)}
+.tick-bar.current{width:2.5px;height:28px;background:#0a0a0a}
+.tick-bar.active{background:#0a0a0a}
+.tick-label{font-size:8px;color:rgba(0,0,0,0.25);white-space:nowrap}
+.tick-label.active{color:rgba(0,0,0,0.7)}
+.tick-special{font-size:7px;color:rgba(0,0,0,0.3);letter-spacing:.05em;text-align:center;line-height:1}
+#dial-hint{text-align:center;margin-top:6px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:rgba(0,0,0,0.2)}
+
+/* Graph */
+#graph-section{padding:16px 16px 4px}
+#graph-title{font-size:10px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:rgba(0,0,0,0.3);margin-bottom:8px;text-align:center}
+#graph-svg{width:100%;display:block;overflow:visible}
+#graph-legend{display:flex;gap:16px;justify-content:center;padding-bottom:4px}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:9px;color:rgba(0,0,0,0.35)}
+.legend-line{width:14px;height:1.5px;border-radius:1px}
+
+/* Sun strip */
+#sun-strip{display:flex;justify-content:space-around;padding:4px 20px 20px}
+.sun-item{text-align:left}
+.sun-item:last-child{text-align:right}
+.sun-val{font-size:13px;font-weight:500;color:#0a0a0a}
+.sun-lbl{font-size:10px;color:rgba(0,0,0,0.35);margin-top:2px;letter-spacing:.03em}
+
+/* Week */
+#week-section{padding:0 20px;text-align:center}
+#week-title{font-size:10px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:rgba(0,0,0,0.3);margin-bottom:10px;text-align:center}
+.week-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid rgba(0,0,0,0.05)}
+.week-day{width:36px;font-size:12px;font-weight:500;color:rgba(0,0,0,0.5)}
+.week-bar-wrap{flex:1;height:3px;border-radius:99px;background:rgba(0,0,0,0.07);overflow:hidden;margin:0 4px}
+.week-bar-fill{height:100%;border-radius:99px;background:rgba(0,0,0,0.3)}
+.week-temps{display:flex;gap:8px;font-size:13px}
+.week-lo{color:rgba(0,0,0,0.4)}
+.week-hi{font-weight:600;color:#0a0a0a}
+
+/* Insights */
+#insights-view{display:none;padding:20px 16px 0}
+#insights-view.visible{display:block}
+.i-title{font-size:18px;font-weight:600;color:#fff;margin-bottom:4px}
+.i-sub{font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:16px}
+.itile{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.09);border-radius:18px;padding:16px;margin-bottom:10px}
+.itile-label{font-size:9px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:10px}
+.itile-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.itile-big{font-size:26px;font-weight:700;color:#fff;line-height:1}
+.itile-small{font-size:11px;color:rgba(255,255,255,0.38);margin-top:3px}
+#week-tiles-wrap{overflow-x:auto;margin:0 -4px}
+#week-tiles-inner{display:flex;gap:8px;min-width:max-content;padding:0 4px}
+.week-tile{flex-shrink:0;min-width:80px;border-radius:14px;padding:12px 10px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:5px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.07)}
+.week-tile.today{background:rgba(255,255,255,0.12);border-color:rgba(255,255,255,0.18)}
+.week-tile-day{font-size:11px;font-weight:400;color:rgba(255,255,255,0.5)}
+.week-tile.today .week-tile-day{font-weight:600;color:#fff}
+.week-tile-hi{font-size:14px;font-weight:700;color:#fff}
+.week-tile-lo{font-size:11px;color:rgba(255,255,255,0.38)}
+.rain-chip{font-size:9px;color:#7dd3fc}
+#radar-frame{width:100%;height:280px;border:none;display:block;border-radius:10px;overflow:hidden}
+#ai-briefing-insights{font-size:14px;line-height:1.75;color:rgba(255,255,255,0.82);font-weight:300}
+.aqi-bar{margin-top:8px;height:3px;border-radius:99px;background:rgba(255,255,255,0.1);overflow:hidden}
+.aqi-fill{height:100%;border-radius:99px}
+.roadmap-tile{border:1px solid rgba(99,102,241,0.25);border-radius:14px;padding:14px 16px;margin-bottom:10px}
+.roadmap-label{font-size:10px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:rgba(99,102,241,0.8);margin-bottom:8px}
+.roadmap-items{font-size:12px;color:rgba(255,255,255,0.38);line-height:2}
+
+/* FAB */
+#fab{position:fixed;bottom:28px;right:20px;z-index:200;padding:10px 18px;border-radius:99px;font-size:12px;font-weight:600;letter-spacing:.04em;display:flex;align-items:center;gap:6px;transition:all .25s;box-shadow:0 4px 20px rgba(0,0,0,0.18);background:#0a0a0a;color:#fff}
+#fab.insights-mode{background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);box-shadow:0 4px 20px rgba(0,0,0,0.4)}
+
+/* Footer */
+#footer{text-align:center;padding:20px 0 8px;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:rgba(0,0,0,0.15)}
+#footer.dark{color:rgba(255,255,255,0.12)}
+
+/* Loading */
+#loading{text-align:center;padding:100px 20px}
+.spinner{width:28px;height:28px;border:2px solid rgba(0,0,0,0.1);border-top-color:#0a0a0a;border-radius:50%;animation:spin .9s linear infinite;margin:0 auto}
+#loading p{font-size:14px;color:rgba(0,0,0,0.4);margin-top:16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Stars */
+#stars{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden;display:none}
+.star{position:absolute;background:#fff;border-radius:50%;animation:twinkle 3s ease-in-out infinite}
+@keyframes twinkle{0%,100%{opacity:.06}50%{opacity:.45}}
+</style>
+</head>
+<body>
+<div id="stars"></div>
+<div id="app">
+  <div id="header">
+    <div id="header-left"></div>
+    <select id="city-select"></select>
+  </div>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Reading the sky…</p>
+  </div>
+
+  <div id="simple-view" class="hidden">
+    <div id="hero">
+      <div id="day-label"></div>
+      <div id="date-label"></div>
+      <div id="temp-big"></div>
+      <div id="condition-row">
+        <div id="condition-icon"></div>
+        <div id="condition-label"></div>
+      </div>
+    </div>
+    <div id="meta-row"></div>
+    <div id="briefing-card">Reading the sky…</div>
+    <div id="briefing-pills" style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:0 20px 18px"></div>
+    <div class="div"></div>
+    <div id="hourly-outer"><div id="hourly-inner"></div></div>
+    <div class="div"></div>
+    <div id="dial-section">
+      <!-- Icon + temp + feels driven by dial -->
+      <div style="display:flex;align-items:center;justify-content:center;gap:20px;padding:0 20px 12px">
+        <div style="text-align:center;min-width:52px">
+          <div style="font-size:8px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:rgba(0,0,0,0.22);margin-bottom:3px">Temp</div>
+          <div id="dial-temp" style="font-size:30px;font-weight:200;color:#0a0a0a;letter-spacing:-1px;line-height:1"></div>
+        </div>
+        <div id="dial-icon" style="flex-shrink:0"></div>
+        <div style="text-align:center;min-width:52px">
+          <div style="font-size:8px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:rgba(0,0,0,0.22);margin-bottom:3px">Feels like</div>
+          <div id="dial-feels" style="font-size:30px;font-weight:200;color:rgba(0,0,0,0.38);letter-spacing:-1px;line-height:1"></div>
+        </div>
+      </div>
+      <!-- Graph + dial integrated -->
+      <div style="padding:0 16px 2px">
+        <svg id="graph-svg" viewBox="0 0 360 90" style="width:100%;display:block;overflow:visible"></svg>
+        <div style="display:flex;gap:14px;justify-content:center;margin-top:2px">
+          <div class="legend-item"><div class="legend-line" style="background:#0a0a0a"></div>Temp</div>
+          <div class="legend-item"><div class="legend-line" style="background:rgba(0,0,0,0.25);border-top:1px dashed rgba(0,0,0,0.3)"></div>Feels like</div>
+        </div>
+      </div>
+      <!-- Time label above dial -->
+      <div id="dial-readout" style="text-align:center;padding:12px 0 0">
+        <div id="dial-time-label" style="font-size:11px;color:rgba(0,0,0,0.35);letter-spacing:.05em">Now</div>
+      </div>
+      <div id="dial-rail">
+        <div id="dial-centre"></div>
+        <div id="dial-track">
+          <div id="dial-spacer-l"></div>
+          <div id="dial-ticks"></div>
+          <div id="dial-spacer-r"></div>
+        </div>
+      </div>
+      <div id="dial-hint">Drag to explore</div>
+    </div>
+    <div id="sun-strip">
+      <div class="sun-item"><div class="sun-val" id="sunrise-val"></div><div class="sun-lbl">Sunrise</div></div>
+      <div class="sun-item"><div class="sun-val" id="sunset-val"></div><div class="sun-lbl">Sunset</div></div>
+    </div>
+    <div style="height:1px;background:rgba(0,0,0,0.06);margin:0 20px 16px"></div>
+    <div id="week-section">
+      <div id="week-title">This Week</div>
+      <div id="week-scroll-outer" style="overflow-x:auto;margin:0 -2px;padding:0 18px">
+        <div id="week-chips" style="display:inline-flex;gap:8px;min-width:max-content;padding:2px 0 8px"></div>
+      </div>
+    </div>
+    <div id="footer">tempra v1.12</div>
+  </div>
+
+  <div id="insights-view">
+    <div class="i-title">Tempra Insights</div>
+    <div class="i-sub" id="insights-date"></div>
+    <div class="itile" style="grid-column:span 2;margin-bottom:10px">
+      <div class="itile-label">✦ Today's Briefing</div>
+      <div id="ai-briefing-insights">Loading…</div>
+    </div>
+    <div class="itile" style="margin-bottom:10px">
+      <div class="itile-label">☁ 10-Day Outlook</div>
+      <div id="week-tiles-wrap"><div id="week-tiles-inner"></div></div>
+    </div>
+    <div class="itile-grid">
+      <div class="itile">
+        <div class="itile-label">Air Quality</div>
+        <div class="itile-big" id="aqi-label">—</div>
+        <div class="itile-small" id="aqi-sub"></div>
+        <div class="aqi-bar"><div class="aqi-fill" id="aqi-fill"></div></div>
+      </div>
+      <div class="itile">
+        <div class="itile-label">UV Index</div>
+        <div class="itile-big" id="uv-val">—</div>
+        <div class="itile-small" id="uv-label"></div>
+      </div>
+      <div class="itile">
+        <div class="itile-label">Wind</div>
+        <div class="itile-big" id="wind-val">—</div>
+        <div class="itile-small">km/h</div>
+      </div>
+      <div class="itile">
+        <div class="itile-label">Humidity</div>
+        <div class="itile-big" id="hum-val">—</div>
+        <div class="itile-small">Relative</div>
+      </div>
+    </div>
+    <div class="itile" style="margin-bottom:10px">
+      <div class="itile-label">📡 BOM Radar</div>
+      <div style="border-radius:10px;overflow:hidden;background:#000d1a">
+        <iframe id="radar-frame" title="BOM Radar" scrolling="no"></iframe>
+      </div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.25);margin-top:8px;text-align:center">
+        Bureau of Meteorology · <a id="radar-link" href="#" target="_blank" style="color:rgba(147,197,253,0.7);text-decoration:none">Full radar ↗</a>
+      </div>
+    </div>
+    <div class="roadmap-tile">
+      <div class="roadmap-label">📋 Roadmap</div>
+      <div class="roadmap-items">
+        · Branding review (name, icon, palette)<br>
+        · Real AI briefing via Cloudflare Worker (v1.9)<br>
+        · Configurable stats on simple view<br>
+        · Pollen data (Ambee API)<br>
+        · Haptic feedback on dial (PWA)<br>
+        · Geolocation auto-detect<br>
+        · Push notifications for rain<br>
+        · Location / home city setting<br>
+                    · Tide data for coastal cities
+      </div>
+    </div>
+    <div id="footer" class="dark">tempra v1.12</div>
+  </div>
+</div>
+
+<button id="fab">✦ Insights</button>
+
+<script>
+// ── Constants ─────────────────────────────────────────────────────────────────
+var CITIES = [
+  {name:"Melbourne",lat:-37.8136,lon:144.9631,tz:"Australia/Melbourne",radar:"IDR023"},
+  {name:"Sydney",lat:-33.8688,lon:151.2093,tz:"Australia/Sydney",radar:"IDR713"},
+  {name:"Brisbane",lat:-27.4698,lon:153.0251,tz:"Australia/Brisbane",radar:"IDR663"},
+  {name:"Perth",lat:-31.9505,lon:115.8605,tz:"Australia/Perth",radar:"IDR704"},
+  {name:"Adelaide",lat:-34.9285,lon:138.6007,tz:"Australia/Adelaide",radar:"IDR643"},
+  {name:"Canberra",lat:-35.2809,lon:149.13,tz:"Australia/Sydney",radar:"IDR403"},
+  {name:"Darwin",lat:-12.4634,lon:130.8456,tz:"Australia/Darwin",radar:"IDR632"},
+  {name:"Hobart",lat:-42.8821,lon:147.3272,tz:"Australia/Hobart",radar:"IDR023"}
+];
+var WMO = {
+  0:"Clear",1:"Clear",2:"Partly Cloudy",3:"Overcast",
+  45:"Fog",48:"Fog",51:"Drizzle",53:"Drizzle",55:"Drizzle",
+  61:"Light Rain",63:"Rain",65:"Heavy Rain",
+  71:"Light Snow",73:"Snow",75:"Heavy Snow",
+  80:"Showers",81:"Showers",82:"Heavy Showers",
+  95:"Thunderstorm",96:"Thunderstorm",99:"Thunderstorm"
+};
+var DAYS_L = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+var DAYS_S = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+var MONTHS_L = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+var MONTHS_S = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+var AQI_LABELS = ["Good","Fair","Moderate","Poor","Very Poor"];
+var AQI_COLORS = ["#22c55e","#84cc16","#eab308","#f97316","#ef4444"];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+var city, weather, insightsMode = false;
+var dialSlots = [], dialCurrentIdx = 0, dialActiveIdx = -1, dialIdleTimer = null;
+var currentRadarUrl = "";
+var graphXOf=null, graphYOf=null, graphSlots=null;
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function ord(n){var s=["th","st","nd","rd"],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0]);}
+function localDateStr(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
+function pad(n){return n<10?"0"+n:String(n);}
+function timeToMins(s){if(!s)return 0;var t=s.indexOf("T")>=0?s.split("T")[1]:s;var p=t.split(":");return parseInt(p[0])*60+(parseInt(p[1])||0);}
+function minsToStr(m){var h=Math.floor(m/60)%24,mn=Math.round(m%60);return (h%12||12)+(mn?":"+pad(mn):"")+(h>=12?"pm":"am");}
+function fmtHour(d){var h=d.getHours(),m=d.getMinutes();return (h%12||12)+(m?":"+pad(m):"")+(h>=12?"pm":"am");}
+function fmtDate(d){return DAYS_L[d.getDay()]+", "+MONTHS_L[d.getMonth()]+" "+ord(d.getDate());}
+function el(id){return document.getElementById(id);}
+function getCode(c){return WMO[c]||"Unknown";}
+
+// ── SVG Icons ─────────────────────────────────────────────────────────────────
+function weatherIcon(code, size, stroke, sw) {
+  sw = sw||1.6; stroke = stroke||"#0a0a0a";
+  var ns = "http://www.w3.org/2000/svg";
+  var svg = document.createElementNS(ns,"svg");
+  svg.setAttribute("width",size); svg.setAttribute("height",size);
+  svg.setAttribute("viewBox","0 0 48 48"); svg.setAttribute("fill","none");
+  svg.style.display="block"; svg.style.flexShrink="0";
+
+  function line(x1,y1,x2,y2){var l=document.createElementNS(ns,"line");l.setAttribute("x1",x1);l.setAttribute("y1",y1);l.setAttribute("x2",x2);l.setAttribute("y2",y2);l.setAttribute("stroke",stroke);l.setAttribute("stroke-width",sw);l.setAttribute("stroke-linecap","round");svg.appendChild(l);}
+  function circle(cx,cy,r,fill){var c=document.createElementNS(ns,"circle");c.setAttribute("cx",cx);c.setAttribute("cy",cy);c.setAttribute("r",r);c.setAttribute("stroke",stroke);c.setAttribute("stroke-width",sw);if(fill)c.setAttribute("fill",fill);svg.appendChild(c);}
+  function path(d){var p=document.createElementNS(ns,"path");p.setAttribute("d",d);p.setAttribute("stroke",stroke);p.setAttribute("stroke-width",sw);p.setAttribute("stroke-linejoin","round");svg.appendChild(p);}
+
+  if(code===0||code===1){
+    circle(24,24,9);
+    for(var i=0;i<8;i++){var a=i*45*Math.PI/180;line(24+14*Math.cos(a),24+14*Math.sin(a),24+18*Math.cos(a),24+18*Math.sin(a));}
+  } else if(code===2){
+    circle(19,20,6);
+    var angs=[315,0,45];
+    for(var j=0;j<angs.length;j++){var ar=angs[j]*Math.PI/180;line(19+9*Math.cos(ar),20+9*Math.sin(ar),19+13*Math.cos(ar),20+13*Math.sin(ar));}
+    path("M12 27 Q12 21.5 17.5 21.5 L30.5 21.5 Q36 21.5 36 27 Q36 32.5 30.5 32.5 L12 32.5 Q12 32.5 12 27Z");
+  } else if(code===3){
+    path("M8 29 Q8 20 17 20 Q18 11 28 11 Q39 11 39 22 Q45 22 45 29 Q45 36 39 36 H9 Q8 36 8 29Z");
+  } else if(code===45||code===48){
+    line(7,13,41,13);line(11,21,37,21);line(7,29,41,29);line(11,37,37,37);
+  } else if((code>=51&&code<=65)||(code>=80&&code<=82)){
+    path("M7 24 Q7 15 16 15 Q17 7 27 7 Q37 7 37 18 Q43 18 43 24 Q43 31 37 31 H7Z");
+    var drops=code>=65||code===82?4:code>=63||code===81?3:2;
+    for(var d=0;d<drops;d++){line(13+d*7,35,11+d*7,44);}
+  } else if(code>=71&&code<=75){
+    path("M7 22 Q7 13 16 13 Q17 5 27 5 Q37 5 37 16 Q43 16 43 22 Q43 29 37 29 H7Z");
+    var dots=document.createElementNS(ns,"circle");
+    [13,22,31].forEach(function(x){
+      var c1=document.createElementNS(ns,"circle");c1.setAttribute("cx",x);c1.setAttribute("cy","35");c1.setAttribute("r","1.8");c1.setAttribute("fill",stroke);svg.appendChild(c1);
+      var c2=document.createElementNS(ns,"circle");c2.setAttribute("cx",x);c2.setAttribute("cy","43");c2.setAttribute("r","1.8");c2.setAttribute("fill",stroke);svg.appendChild(c2);
+    });
+  } else if(code>=95){
+    path("M7 22 Q7 13 16 13 Q17 5 27 5 Q37 5 37 16 Q43 16 43 22 Q43 29 37 29 H7Z");
+    var bolt=document.createElementNS(ns,"polyline");bolt.setAttribute("points","29,31 23,40 27,40 21,49");bolt.setAttribute("stroke",stroke);bolt.setAttribute("stroke-width",sw*1.2);bolt.setAttribute("stroke-linecap","round");bolt.setAttribute("stroke-linejoin","round");svg.appendChild(bolt);
+  } else {
+    path("M8 29 Q8 20 17 20 Q18 11 28 11 Q39 11 39 22 Q45 22 45 29 Q45 36 39 36 H9Z");
+  }
+  return svg;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+function init() {
+  // Stars
+  var starsEl = el("stars");
+  for(var i=0;i<50;i++){
+    var s=document.createElement("div");
+    s.className="star";
+    s.style.left=((i*137.508)%100)+"%";
+    s.style.top=((i*93.7)%80)+"%";
+    s.style.width=s.style.height=(i%8===0?"2":"1")+"px";
+    s.style.opacity=0.06+((i*0.19)%0.4);
+    s.style.animationDelay=((i*0.37)%4)+"s";
+    s.style.animationDuration=(2+(i%5)*0.8)+"s";
+    starsEl.appendChild(s);
+  }
+
+  // City select
+  var sel = el("city-select");
+  var saved = localStorage.getItem("t_city");
+  CITIES.forEach(function(c){
+    var opt=document.createElement("option");
+    opt.value=c.name; opt.textContent=c.name;
+    sel.appendChild(opt);
+  });
+  city = CITIES.find(function(c){return c.name===saved;})||CITIES[0];
+  sel.value = city.name;
+  sel.addEventListener("change", function(){
+    city = CITIES.find(function(c){return c.name===sel.value;})||CITIES[0];
+    localStorage.setItem("t_city", city.name);
+    loadWeather();
+  });
+
+  // FAB
+  el("fab").addEventListener("click", function(){
+    insightsMode = !insightsMode;
+    applyMode();
+  });
+
+  loadWeather();
+}
+
+function applyMode() {
+  var app = document.getElementById("app");
+  var body = document.body;
+  var fab = el("fab");
+  var simple = el("simple-view");
+  var insights = el("insights-view");
+  var stars = el("stars");
+
+  if(insightsMode){
+    simple.classList.add("hidden");
+    insights.classList.add("visible");
+    app.style.background = "#0a0a0f";
+    body.style.background = "#0a0a0f";
+    stars.style.display = "block";
+    fab.textContent = "← Simple";
+    fab.classList.add("insights-mode");
+    // Load radar now that insights panel is visible
+    var rf = el("radar-frame");
+    if(rf && currentRadarUrl && rf.src !== currentRadarUrl) {
+      rf.src = currentRadarUrl;
+    }
+  } else {
+    simple.classList.remove("hidden");
+    insights.classList.remove("visible");
+    app.style.background = "#fff";
+    body.style.background = "#fff";
+    stars.style.display = "none";
+    fab.textContent = "✦ Insights";
+    fab.classList.remove("insights-mode");
+    // Keep radar src so it reloads instantly if user comes back
+    // el("radar-frame").src = ""; — intentionally not clearing
+  }
+}
+
+// ── Weather fetch ─────────────────────────────────────────────────────────────
+function loadWeather() {
+  el("loading").classList.remove("hidden");
+  el("simple-view").classList.add("hidden");
+  el("insights-view").classList.remove("visible");
+  weather = null;
+
+  var url = "https://api.open-meteo.com/v1/forecast"
+    +"?latitude="+city.lat+"&longitude="+city.lon
+    +"&current=temperature_2m,apparent_temperature,relative_humidity_2m,weathercode,windspeed_10m,precipitation"
+    +"&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weathercode"
+    +"&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max,"
+    +"precipitation_sum,precipitation_probability_max,precipitation_hours,sunrise,sunset,uv_index_max"
+    +"&timezone="+city.tz+"&forecast_days=10";
+
+  fetch(url).then(function(r){return r.json();}).then(function(data){
+    weather = data;
+    el("loading").classList.add("hidden");
+    render();
+    if(insightsMode) insights.classList.add("visible");
+    else el("simple-view").classList.remove("hidden");
+    // AQI
+    var aqUrl = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude="+city.lat+"&longitude="+city.lon+"&current=european_aqi&timezone="+city.tz;
+    fetch(aqUrl).then(function(r){return r.json();}).then(function(d){
+      var raw = d && d.current && d.current.european_aqi;
+      if(raw!=null){
+        var idx = raw<=20?0:raw<=40?1:raw<=60?2:raw<=80?3:4;
+        el("aqi-label").textContent = AQI_LABELS[idx];
+        el("aqi-label").style.color = AQI_COLORS[idx];
+        el("aqi-sub").textContent = "European AQI index";
+        el("aqi-fill").style.width = (((idx+1)/5)*100)+"%";
+        el("aqi-fill").style.background = AQI_COLORS[idx];
+      }
+    }).catch(function(){});
+  }).catch(function(){
+    el("loading").innerHTML = "<p style='color:rgba(0,0,0,0.4);padding:20px'>Couldn't load weather.<br><button onclick='loadWeather()' style='margin-top:12px;padding:8px 20px;border-radius:99px;background:#0a0a0a;color:#fff;font-size:13px;cursor:pointer'>Try again</button></p>";
+  });
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render() {
+  if(!weather || !weather.current || !weather.daily) return;
+  var cur = weather.current;
+  var daily = weather.daily;
+  var hourly = weather.hourly;
+  var now = new Date();
+  var todayStr = localDateStr(now);
+
+  var code = cur.weathercode;
+  var temp = Math.round(cur.temperature_2m);
+  var feels = Math.round(cur.apparent_temperature);
+  var hi = Math.round(daily.temperature_2m_max[0]);
+  var lo = Math.round(daily.temperature_2m_min[0]);
+  var uv = (daily.uv_index_max && daily.uv_index_max[0])||0;
+  var rainPct = (daily.precipitation_probability_max && daily.precipitation_probability_max[0])||0;
+  var wind = Math.round(cur.windspeed_10m);
+  var humid = cur.relative_humidity_2m;
+  var riseMins = timeToMins(daily.sunrise && daily.sunrise[0]);
+  var setMins = timeToMins(daily.sunset && daily.sunset[0]);
+
+  // Header date
+  el("day-label").textContent = DAYS_L[now.getDay()]+", "+MONTHS_L[now.getMonth()]+" "+ord(now.getDate());
+  el("date-label").textContent = "";
+
+  // Temp
+  el("temp-big").innerHTML = temp+"<span>°</span>";
+
+  // Icon + condition
+  var iconEl = el("condition-icon");
+  iconEl.innerHTML = "";
+  iconEl.appendChild(weatherIcon(code,28,"rgba(0,0,0,0.55)",1.4));
+  el("condition-label").textContent = getCode(code);
+
+  // Meta — feels like line, then expecting line
+  var meta = el("meta-row");
+  meta.innerHTML =
+    '<span style="width:100%;text-align:center;display:block;font-size:13px;color:rgba(0,0,0,0.4);margin-bottom:3px">Feels like '+feels+'°</span>'+
+    '<span style="width:100%;text-align:center;display:block;font-size:12px;color:rgba(0,0,0,0.3)">Expecting '+lo+'° to '+hi+'° today'+(rainPct>0?' &nbsp;·&nbsp; '+rainPct+'% rain':'')+'</span>';
+
+  // Sun strip
+  el("sunrise-val").textContent = minsToStr(riseMins);
+  el("sunset-val").textContent = minsToStr(setMins);
+
+  // Insights header
+  el("insights-date").textContent = fmtDate(now);
+  el("wind-val").textContent = wind;
+  el("hum-val").textContent = humid+"%";
+  var uvEl = el("uv-val");
+  uvEl.textContent = uv;
+  uvEl.style.color = uv>=8?"#ef4444":uv>=6?"#f97316":uv>=3?"#eab308":"#22c55e";
+  el("uv-label").textContent = uv>=8?"Extreme":uv>=6?"High":uv>=3?"Moderate":"Low";
+
+  // Radar — store URL, load when insights opens
+  currentRadarUrl = "https://www.bom.gov.au/products/"+city.radar+".loop.shtml";
+  el("radar-link").href = currentRadarUrl;
+  if(insightsMode){
+    el("radar-frame").src = currentRadarUrl;
+  } else {
+    el("radar-frame").src = ""; // clear so it loads fresh when opened
+  }
+
+  // Briefing
+  renderBriefing(cur, daily, hourly, now, todayStr, riseMins, setMins);
+
+  // Hourly strip
+  renderHourly(hourly, now);
+
+  // Dial
+  renderDial(hourly, now, todayStr, riseMins, setMins);
+
+  // Graph
+  renderGraph(hourly, now, todayStr, riseMins, setMins);
+
+  // Week
+  renderWeek(daily, now);
+
+  // 10-day tiles
+  renderTiles(daily);
+}
+
+// ── Briefing ──────────────────────────────────────────────────────────────────
+function renderBriefing(cur, daily, hourly, now, todayStr, riseMins, setMins) {
+  var temp = Math.round(cur.temperature_2m);
+  var feels = Math.round(cur.apparent_temperature);
+  var hi = Math.round(daily.temperature_2m_max[0]);
+  var lo = Math.round(daily.temperature_2m_min[0]);
+  var uv = (daily.uv_index_max && daily.uv_index_max[0])||0;
+  var rainPct = (daily.precipitation_probability_max && daily.precipitation_probability_max[0])||0;
+  var sunsetT = minsToStr(setMins);
+  var sunriseT = minsToStr(riseMins);
+
+  var rainWin = [];
+  if(hourly){
+    var inRain=false, rs=null;
+    for(var i=0;i<hourly.time.length;i++){
+      if(hourly.time[i].indexOf(todayStr)<0) continue;
+      var t=new Date(hourly.time[i]);
+      var prob=(hourly.precipitation_probability&&hourly.precipitation_probability[i])||0;
+      if(!inRain&&prob>40){inRain=true;rs=t;}
+      else if(inRain&&prob<=20){rainWin.push({start:rs,end:t});inRain=false;}
+    }
+    if(inRain&&rs) rainWin.push({start:rs,end:null});
+  }
+
+  var morningCodes = hourly&&hourly.weathercode?hourly.weathercode.slice(0,8):[];
+  var hasFog = morningCodes.some(function(c){return c===45||c===48;});
+  var hasFrost = lo<=2;
+
+  var wMaxes = daily.temperature_2m_max.slice(1,7);
+  var wIdx = wMaxes.indexOf(Math.max.apply(null,wMaxes));
+  var wTemp = Math.round(wMaxes[wIdx]);
+  var wDate = new Date(daily.time[wIdx+1]+"T00:00:00");
+  var wDay = DAYS_L[wDate.getDay()];
+
+  var feelDiff = feels-temp;
+  var feelNote = feelDiff<=-3?", though it feels closer to "+feels+"°":feelDiff>=2?", feeling like "+feels+"°":"";
+
+  // Briefing sentences — conversational, no em dashes
+  var s1, s2today, s2insights;
+
+  // Peak temp time — find the hottest hour
+  var peakHour = 14; // default 2pm
+  if(hourly){
+    var maxT=-99, maxI=0;
+    for(var pi=0;pi<hourly.time.length;pi++){
+      if(hourly.time[pi].indexOf(todayStr)<0) continue;
+      if(hourly.temperature_2m[pi]>maxT){maxT=hourly.temperature_2m[pi];maxI=pi;}
+    }
+    peakHour=new Date(hourly.time[maxI]).getHours();
+  }
+  var peakStr=(peakHour%12||12)+(peakHour<12?"am":"pm");
+
+  if(hasFrost){
+    s1 = "A frosty start this morning with the low hitting "+lo+"°. It should climb to "+hi+"° through the day with the sun up from "+sunriseT+".";
+  } else if(hasFog){
+    s1 = "A foggy start to the morning in "+city.name+", clearing through to "+hi+"° later in the day. Sun sets at "+sunsetT+".";
+  } else if(rainWin.length>0){
+    var w=rainWin[0];
+    var endStr=w.end?"clearing around "+fmtHour(w.end):"continuing into the evening";
+    s1 = "Expect rain from around "+fmtHour(w.start)+", "+endStr+". High of "+hi+"° with the sun setting at "+sunsetT+".";
+  } else {
+    var condLow = getCode(cur.weathercode).toLowerCase();
+    s1 = "It should be "+condLow+" all day, peaking at "+hi+"° around "+peakStr+" with the sun setting at "+sunsetT+".";
+  }
+
+  if(rainPct>25&&rainWin.length===0){
+    s2today = "There is a "+rainPct+"% chance of showers at some point today. Worth keeping an umbrella close.";
+  } else if(uv>=8){
+    s2today = "UV is extreme today at "+uv+". Sunscreen is essential if you are heading out.";
+  } else if(uv>=6){
+    s2today = "UV reaches "+uv+" today so sun protection is worth thinking about.";
+  } else if(rainWin.length===0&&rainPct<=25){
+    s2today = "A dry day on the cards.";
+  } else {
+    s2today = "";
+  }
+
+  // Insights version adds week ahead
+  var weekNote;
+  if(rainWin.length>0){
+    weekNote = wDay+" looks like the pick of the week at "+wTemp+"°.";
+  } else if(rainPct>25){
+    weekNote = wDay+" is the warmest day ahead at "+wTemp+"°.";
+  } else {
+    weekNote = "A dry week ahead with "+wDay+" the warmest at "+wTemp+"°.";
+  }
+
+  var todayText = s1+(s2today?" "+s2today:"");
+  var insightsText = s1+" "+weekNote;
+
+  el("briefing-card").textContent = todayText;
+  el("ai-briefing-insights").textContent = insightsText;
+
+  // Briefing pills — sunrise, sunset, UV, wind
+  var pills = el("briefing-pills");
+  if(pills){
+    pills.innerHTML = "";
+    var pillData = [
+      "Sunrise "+minsToStr(riseMins),
+      "Sunset "+minsToStr(setMins),
+      uv>0?"UV "+uv+(uv>=8?" extreme":uv>=6?" high":uv>=3?" moderate":" low"):"",
+      cur.windspeed_10m>0?Math.round(cur.windspeed_10m)+" km/h wind":"",
+    ].filter(Boolean);
+    pillData.forEach(function(txt){
+      var p=document.createElement("div");
+      p.style.cssText="padding:5px 11px;border-radius:99px;background:rgba(0,0,0,0.04);border:0.5px solid rgba(0,0,0,0.08);font-size:11px;color:rgba(0,0,0,0.48);white-space:nowrap";
+      p.textContent=txt;
+      pills.appendChild(p);
+    });
+  }
+}
+
+// ── Hourly strip ──────────────────────────────────────────────────────────────
+function renderHourly(hourly, now) {
+  var inner = el("hourly-inner");
+  inner.innerHTML = "";
+  if(!hourly) return;
+
+  var nowMs = now.getTime();
+  var BACK=5*3600000, FWRD=7*3600000;
+  var items=[], currentEl=null;
+
+  for(var i=0;i<hourly.time.length;i++){
+    var t=new Date(hourly.time[i]);
+    var diff=t.getTime()-nowMs;
+    if(diff<-BACK||diff>FWRD) continue;
+    var isCurrent=Math.abs(diff)<35*60000;
+    var isPast=diff<-20*60000;
+    var isMidnight=t.getHours()===0&&t.getMinutes()===0;
+
+    var wrap=document.createElement("div");
+    wrap.className="hour-item"+(isPast?" past":"")+(isCurrent?" current":"");
+
+    // No midnight label in simple view — kept clean
+    var spacer=document.createElement("div");
+    spacer.style.cssText="font-size:8px;opacity:0;margin-bottom:3px";
+    spacer.textContent=".";
+    wrap.appendChild(spacer);
+
+    var timeDiv=document.createElement("div");
+    timeDiv.className="hour-time";
+    timeDiv.textContent=fmtHour(t);
+    wrap.appendChild(timeDiv);
+
+    var iconWrap=document.createElement("div");
+    var ic=weatherIcon(hourly.weathercode[i],isCurrent?36:28,isCurrent?"#0a0a0a":"rgba(0,0,0,0.45)",isCurrent?1.8:1.4);
+    iconWrap.appendChild(ic);
+    wrap.appendChild(iconWrap);
+
+    var tempDiv=document.createElement("div");
+    tempDiv.className="hour-temp";
+    tempDiv.textContent=Math.round(hourly.temperature_2m[i])+"°";
+    wrap.appendChild(tempDiv);
+
+    if(isCurrent){
+      var dot=document.createElement("div");
+      dot.className="hour-dot";
+      wrap.appendChild(dot);
+      currentEl=wrap;
+    }
+
+    inner.appendChild(wrap);
+  }
+
+  // Scroll current to centre
+  if(currentEl){
+    setTimeout(function(){
+      var outer=el("hourly-outer");
+      var target=currentEl.offsetLeft-(outer.clientWidth/2)+(currentEl.offsetWidth/2);
+      outer.scrollLeft=Math.max(0,target);
+    },50);
+  }
+}
+
+// ── Dial ──────────────────────────────────────────────────────────────────────
+function renderDial(hourly, now, todayStr, riseMins, setMins) {
+  if(!hourly) return;
+  var nowMins = now.getHours()*60+now.getMinutes();
+  dialSlots = [];
+  dialCurrentIdx = 0;
+  var bestDiff=Infinity;
+  var TICK_W = 28;
+
+  // Build slots from ALL hourly data (today + tomorrow = 48h)
+  // This gives smooth scrolling past 11pm into next day
+  for(var i=0;i<Math.min(hourly.time.length,48);i++){
+    var t=new Date(hourly.time[i]);
+    var dayOff=t.toISOString().slice(0,10)===todayStr?0:1;
+    var mins=t.getHours()*60+t.getMinutes();
+    // For today: compare directly. For tomorrow: add 24h for display purposes
+    var slotMins=dayOff===0?mins:mins+1440;
+    var diff=Math.abs(slotMins-nowMins);
+    if(dayOff===0&&diff<bestDiff){bestDiff=diff;dialCurrentIdx=dialSlots.length;}
+    var isSunrise=dayOff===0&&Math.abs(mins-riseMins)<30;
+    var isSunset=dayOff===0&&Math.abs(mins-setMins)<30;
+    var isMidnight=t.getHours()===0&&t.getMinutes()===0&&dayOff===1;
+    dialSlots.push({
+      mins:slotMins, rawMins:mins, dayOff:dayOff,
+      label:dayOff===0?minsToStr(mins):minsToStr(mins)+" tmrw",
+      shortLabel:minsToStr(mins),
+      temp:Math.round(hourly.temperature_2m[i]),
+      feels:Math.round((hourly.apparent_temperature&&hourly.apparent_temperature[i])||hourly.temperature_2m[i]),
+      isSunrise:isSunrise, isSunset:isSunset, isMidnight:isMidnight
+    });
+  }
+
+  // Build ticks
+  var ticksEl = el("dial-ticks");
+  ticksEl.innerHTML = "";
+  ticksEl.style.display="flex";
+  ticksEl.style.alignItems="center";
+  ticksEl.style.height="100%";
+
+  dialSlots.forEach(function(slot, idx){
+    var wrap=document.createElement("div");
+    wrap.className="dial-tick";
+    wrap.style.width=TICK_W+"px";
+    wrap.style.position="relative";
+
+    // Midnight marker for tomorrow
+    if(slot.isMidnight){
+      var midLbl=document.createElement("div");
+      midLbl.style.cssText="position:absolute;top:1px;left:50%;transform:translateX(-50%);font-size:7px;color:rgba(0,0,0,0.22);white-space:nowrap;letter-spacing:.04em";
+      midLbl.textContent="tmrw";
+      wrap.appendChild(midLbl);
+    }
+
+    if(slot.isSunrise||slot.isSunset){
+      var sp=document.createElement("div");
+      sp.className="tick-special";
+      sp.textContent=slot.isSunrise?"rise":"set";
+      wrap.appendChild(sp);
+    }
+
+    var bar=document.createElement("div");
+    var isCur=idx===dialCurrentIdx;
+    var isPast=slot.dayOff===0&&slot.rawMins<nowMins;
+    bar.className="tick-bar"+(isCur?" current":idx%3===0?" tall":"");
+    bar.style.height=isCur?"28px":idx%3===0?"20px":"13px";
+    bar.style.opacity=isPast?"0.35":"1";
+    wrap.appendChild(bar);
+
+    if(idx%3===0){
+      var lbl=document.createElement("div");
+      lbl.className="tick-label";
+      lbl.textContent=slot.shortLabel;
+      lbl.style.opacity=isPast?"0.4":"1";
+      wrap.appendChild(lbl);
+    }
+
+    ticksEl.appendChild(wrap);
+  });
+
+  // Set spacer widths to exactly half the track so current tick centres
+  var track = el("dial-track");
+  function setSpacers(){
+    var hw=Math.round(track.clientWidth/2);
+    el("dial-spacer-l").style.width=hw+"px";
+    el("dial-spacer-l").style.flexShrink="0";
+    el("dial-spacer-r").style.width=hw+"px";
+    el("dial-spacer-r").style.flexShrink="0";
+  }
+
+  // Update readout — time label, temp, feels like, icon, graph dot
+  function updateReadout(idx) {
+    var slot = dialSlots[idx];
+    if(!slot) return;
+    var isNow = idx===dialCurrentIdx && dialActiveIdx===-1;
+    // Time label: "Now" at rest, time string while scrolling
+    el("dial-time-label").textContent = isNow?"Now":slot.label;
+    // Temp and feels like
+    el("dial-temp").textContent = slot.temp+"°";
+    el("dial-feels").textContent = slot.feels+"°";
+    // Icon — update SVG
+    var iconEl = el("dial-icon");
+    if(iconEl) iconEl.innerHTML = weatherIcon(slot.code||0, 56, "#0a0a0a", 1.5);
+    // Sync graph dot
+    syncGraphDot(idx);
+  }
+  updateReadout(dialCurrentIdx);
+
+  // Scroll to current — set spacers first, then scroll
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      setSpacers();
+      track.scrollLeft = dialCurrentIdx*TICK_W;
+    });
+  });
+
+  // Scroll handler
+  track.onscroll = function(){
+    var idx = Math.round(track.scrollLeft/TICK_W);
+    idx = Math.max(0,Math.min(idx,dialSlots.length-1));
+    dialActiveIdx = idx;
+    updateReadout(idx);
+    clearTimeout(dialIdleTimer);
+    dialIdleTimer = setTimeout(function(){
+      dialActiveIdx=-1;
+      updateReadout(dialCurrentIdx);
+      track.style.scrollBehavior="smooth";
+      track.scrollLeft=dialCurrentIdx*TICK_W;
+      setTimeout(function(){track.style.scrollBehavior="auto";},400);
+    },2500);
+  };
+}
+
+// ── Sync graph dot with dial position ────────────────────────────────────────
+function syncGraphDot(dialIdx) {
+  if(!graphXOf||!graphSlots) return;
+  var slot=dialSlots[dialIdx];
+  if(!slot||slot.dayOff!==0) return; // only sync for today
+  var todH=Math.floor(slot.rawMins/60);
+  var gSlot=graphSlots[todH]||graphSlots[0];
+  var gx=graphXOf(todH);
+  var gy=graphYOf(gSlot.temp);
+  var dot=document.getElementById("graph-dot");
+  var vl=document.getElementById("graph-vline");
+  if(dot){dot.setAttribute("cx",gx);dot.setAttribute("cy",gy);}
+  if(vl){vl.setAttribute("x1",gx);vl.setAttribute("x2",gx);}
+}
+
+// ── Graph ─────────────────────────────────────────────────────────────────────
+function renderGraph(hourly, now, todayStr, riseMins, setMins) {
+  if(!hourly) return;
+  var nowMins = now.getHours()*60+now.getMinutes();
+  var slots=[];
+  graphSlots=slots;
+  for(var i=0;i<hourly.time.length;i++){
+    if(hourly.time[i].indexOf(todayStr)<0) continue;
+    slots.push({
+      mins:timeToMins(hourly.time[i]),
+      temp:Math.round(hourly.temperature_2m[i]),
+      feels:Math.round((hourly.apparent_temperature&&hourly.apparent_temperature[i])||hourly.temperature_2m[i])
+    });
+  }
+  if(slots.length<2) return;
+
+  var W=360,H=90,PL=0,PR=0,PT=14,PB=16;
+  var pw=W-PL-PR, ph=H-PT-PB;
+  var lo=Math.min.apply(null,slots.map(function(s){return Math.min(s.temp,s.feels);})) -1;
+  var hi=Math.max.apply(null,slots.map(function(s){return Math.max(s.temp,s.feels);})) +1;
+  var span=hi-lo||1;
+
+  function xOf(i){return PL+(i/(slots.length-1))*pw;}
+  function yOf(v){return PT+ph-((v-lo)/span)*ph;}
+
+  function bezierPath(pts){
+    if(pts.length<2) return "";
+    var d="M "+pts[0].x+" "+pts[0].y;
+    for(var k=1;k<pts.length;k++){
+      var cp=0.4;
+      var x1=pts[k-1].x+(pts[k].x-pts[k-1].x)*cp, y1=pts[k-1].y;
+      var x2=pts[k].x-(pts[k].x-pts[k-1].x)*cp, y2=pts[k].y;
+      d+=" C "+x1+" "+y1+" "+x2+" "+y2+" "+pts[k].x+" "+pts[k].y;
+    }
+    return d;
+  }
+
+  var tempPts=slots.map(function(s,i){return{x:xOf(i),y:yOf(s.temp)};});
+  var feelsPts=slots.map(function(s,i){return{x:xOf(i),y:yOf(s.feels)};});
+
+  var minsRange=slots[slots.length-1].mins-slots[0].mins||1;
+  var nowX=PL+((nowMins-slots[0].mins)/minsRange)*pw;
+  var rX=PL+((riseMins-slots[0].mins)/minsRange)*pw;
+  var sX=PL+((setMins-slots[0].mins)/minsRange)*pw;
+
+  var ns="http://www.w3.org/2000/svg";
+  var svg=el("graph-svg");
+  if(!svg)return;
+  svg.innerHTML="";
+
+  function svgEl(tag,attrs){
+    var e=document.createElementNS(ns,tag);
+    Object.keys(attrs).forEach(function(k){e.setAttribute(k,attrs[k]);});
+    svg.appendChild(e); return e;
+  }
+
+  // Night shades
+  if(rX>PL) svgEl("rect",{x:PL,y:PT,width:Math.max(0,rX-PL),height:ph,fill:"#f0f0f0",opacity:"0.7"});
+  if(sX<W)  svgEl("rect",{x:sX,y:PT,width:Math.max(0,W-PR-sX),height:ph,fill:"#f0f0f0",opacity:"0.7"});
+
+  // Dashed sunrise/sunset lines
+  if(rX>PL&&rX<W) svgEl("line",{x1:rX,y1:PT,x2:rX,y2:PT+ph,stroke:"#bbb","stroke-width":"0.8","stroke-dasharray":"3 3"});
+  if(sX>PL&&sX<W) svgEl("line",{x1:sX,y1:PT,x2:sX,y2:PT+ph,stroke:"#bbb","stroke-width":"0.8","stroke-dasharray":"3 3"});
+
+  // Feels fill
+  var feelsArea=bezierPath(feelsPts)+" L "+feelsPts[feelsPts.length-1].x+" "+(PT+ph)+" L "+PL+" "+(PT+ph)+" Z";
+  svgEl("path",{d:feelsArea,fill:"rgba(0,0,0,0.03)"});
+
+  // Feels line dashed
+  svgEl("path",{d:bezierPath(feelsPts),fill:"none",stroke:"rgba(0,0,0,0.2)","stroke-width":"1.2","stroke-dasharray":"4 3"});
+
+  // Temp fill
+  var tempArea=bezierPath(tempPts)+" L "+tempPts[tempPts.length-1].x+" "+(PT+ph)+" L "+PL+" "+(PT+ph)+" Z";
+  svgEl("path",{d:tempArea,fill:"rgba(0,0,0,0.04)"});
+
+  // Temp line
+  svgEl("path",{d:bezierPath(tempPts),fill:"none",stroke:"#0a0a0a","stroke-width":"1.6","stroke-linecap":"round"});
+
+  // Now marker
+  var nowSlot=slots.find(function(s){return Math.abs(s.mins-nowMins)<35;});
+  if(nowSlot){
+    svgEl("line",{id:"graph-vline",x1:nowX,y1:PT,x2:nowX,y2:PT+ph,stroke:"rgba(0,0,0,0.15)","stroke-width":"1"});
+    svgEl("circle",{id:"graph-dot",cx:nowX,cy:yOf(nowSlot.temp),r:"3",fill:"#0a0a0a"});
+  }
+
+  // Axis labels
+  slots.forEach(function(s,i){
+    if(i%4!==0) return;
+    var x=xOf(i);
+    var tEl=document.createElementNS(ns,"text");
+    tEl.setAttribute("x",x); tEl.setAttribute("y",H-2);
+    tEl.setAttribute("fill","rgba(0,0,0,0.28)"); tEl.setAttribute("font-size","8");
+    tEl.setAttribute("text-anchor","middle"); tEl.setAttribute("font-family","Inter,sans-serif");
+    tEl.textContent=s.mins===0?"12am":minsToStr(s.mins);
+    svg.appendChild(tEl);
+
+    var tEl2=document.createElementNS(ns,"text");
+    tEl2.setAttribute("x",x); tEl2.setAttribute("y",yOf(s.temp)-5);
+    tEl2.setAttribute("fill","rgba(0,0,0,0.45)"); tEl2.setAttribute("font-size","8");
+    tEl2.setAttribute("text-anchor","middle"); tEl2.setAttribute("font-family","Inter,sans-serif");
+    tEl2.textContent=s.temp+"°";
+    svg.appendChild(tEl2);
+  });
+}
+
+// ── Week rows ─────────────────────────────────────────────────────────────────
+function renderWeek(daily, now) {
+  var chips = el("week-chips");
+  chips.innerHTML = "";
+
+  daily.time.slice(1,8).forEach(function(d,i){
+    var date=new Date(d+"T00:00:00");
+    var max=Math.round(daily.temperature_2m_max[i+1]);
+    var min=Math.round(daily.temperature_2m_min[i+1]);
+    var code=daily.weathercode[i+1];
+    var rainP=(daily.precipitation_probability_max&&daily.precipitation_probability_max[i+1])||0;
+
+    var chip=document.createElement("div");
+    chip.style.cssText="display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 10px 8px;border-radius:14px;background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.06);min-width:50px";
+
+    var dayEl=document.createElement("div");
+    dayEl.style.cssText="font-size:10px;font-weight:500;color:rgba(0,0,0,0.4);letter-spacing:.02em";
+    dayEl.textContent=DAYS_S[date.getDay()];
+    chip.appendChild(dayEl);
+
+    var iconWrap=document.createElement("div");
+    iconWrap.appendChild(weatherIcon(code,22,"rgba(0,0,0,0.65)",1.5));
+    chip.appendChild(iconWrap);
+
+    if(rainP>15){
+      var rd=document.createElement("div");
+      rd.style.cssText="display:flex;align-items:center;gap:2px";
+      var rainIcon=document.createElementNS("http://www.w3.org/2000/svg","svg");
+      rainIcon.setAttribute("width","8");rainIcon.setAttribute("height","10");
+      rainIcon.setAttribute("viewBox","0 0 8 10");rainIcon.setAttribute("fill","none");
+      var rp=document.createElementNS("http://www.w3.org/2000/svg","path");
+      rp.setAttribute("d","M4 0.5 Q7 3.5 7 6 Q7 8.5 4 8.5 Q1 8.5 1 6 Q1 3.5 4 0.5Z");
+      rp.setAttribute("stroke","rgba(0,0,0,0.28)");rp.setAttribute("stroke-width","1");rp.setAttribute("stroke-linejoin","round");
+      rainIcon.appendChild(rp);
+      rd.appendChild(rainIcon);
+      var rPct=document.createElement("span");
+      rPct.style.cssText="font-size:9px;color:rgba(0,0,0,0.3)";
+      rPct.textContent=rainP+"%";
+      rd.appendChild(rPct);
+      chip.appendChild(rd);
+    }
+
+    var hiEl=document.createElement("div");
+    hiEl.style.cssText="font-size:13px;font-weight:600;color:#0a0a0a";
+    hiEl.textContent=max+"°";
+    chip.appendChild(hiEl);
+
+    var loEl=document.createElement("div");
+    loEl.style.cssText="font-size:10px;color:rgba(0,0,0,0.32)";
+    loEl.textContent=min+"°";
+    chip.appendChild(loEl);
+
+    chips.appendChild(chip);
+  });
+}
+
+// ── 10-day tiles ──────────────────────────────────────────────────────────────
+function renderTiles(daily) {
+  var inner = el("week-tiles-inner");
+  inner.innerHTML = "";
+  var expandedIdx = -1;
+  var detailEl = null;
+
+  function buildDetail(i){
+    var d=document.createElement("div");
+    d.style.cssText="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:14px 16px;margin-top:10px;animation:fadeUp .2s ease";
+    var date=new Date(daily.time[i]+"T00:00:00");
+    var max=Math.round(daily.temperature_2m_max[i]);
+    var min=Math.round(daily.temperature_2m_min[i]);
+    var feelsMax=daily.apparent_temperature_max&&Math.round(daily.apparent_temperature_max[i]);
+    var rainP=(daily.precipitation_probability_max&&daily.precipitation_probability_max[i])||0;
+    var rainMm=daily.precipitation_sum&&daily.precipitation_sum[i]||0;
+    var rainH=daily.precipitation_hours&&daily.precipitation_hours[i]||0;
+    var uvMax=daily.uv_index_max&&daily.uv_index_max[i];
+    var label=i===0?"Today":DAYS_L[date.getDay()]+", "+MONTHS_S[date.getMonth()]+" "+ord(date.getDate());
+    d.innerHTML=(
+      '<div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:10px">'+label+'</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">'+
+      '<div style="text-align:center"><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:3px">High</div><div style="font-size:18px;font-weight:600;color:#fff">'+max+'°</div></div>'+
+      '<div style="text-align:center"><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:3px">Low</div><div style="font-size:18px;font-weight:600;color:#fff">'+min+'°</div></div>'+
+      (feelsMax?'<div style="text-align:center"><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:3px">Feels</div><div style="font-size:18px;font-weight:600;color:#fff">'+feelsMax+'°</div></div>':'<div></div>')+
+      '</div>'+
+      '<div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">'+
+      '<div style="text-align:center"><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:3px">Rain</div><div style="font-size:16px;font-weight:600;color:#7dd3fc">'+rainP+'%</div></div>'+
+      (rainMm>0?'<div style="text-align:center"><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:3px">Total</div><div style="font-size:16px;font-weight:600;color:#7dd3fc">'+rainMm.toFixed(1)+'mm</div></div>':'<div></div>')+
+      (rainH>0?'<div style="text-align:center"><div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:3px">Hours</div><div style="font-size:16px;font-weight:600;color:#7dd3fc">'+rainH+'h</div></div>':'<div></div>')+
+      '</div>'+
+      (uvMax!=null?'<div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,0.45)">UV index: '+uvMax+(uvMax>=8?' — extreme':uvMax>=6?' — high':uvMax>=3?' — moderate':'')+'</div>':'')+
+      '<div style="font-size:11px;font-style:italic;color:rgba(255,255,255,0.32);margin-top:6px">'+getCode(daily.weathercode[i])+'</div>'
+    );
+    return d;
+  }
+
+  function makeTile(i){
+    var date=new Date(daily.time[i]+"T00:00:00");
+    var max=Math.round(daily.temperature_2m_max[i]);
+    var min=Math.round(daily.temperature_2m_min[i]);
+    var code=daily.weathercode[i];
+    var rainP=(daily.precipitation_probability_max&&daily.precipitation_probability_max[i])||0;
+
+    var tile=document.createElement("div");
+    tile.className="week-tile"+(i===0?" today":"");
+    tile.style.cursor="pointer";
+    tile.style.transition="transform .15s";
+
+    var dayEl=document.createElement("div");
+    dayEl.className="week-tile-day";
+    dayEl.textContent=i===0?"Today":DAYS_S[date.getDay()];
+    tile.appendChild(dayEl);
+
+    var iconWrap=document.createElement("div");
+    iconWrap.appendChild(weatherIcon(code,28,i===0?"#fff":"rgba(255,255,255,0.6)",1.5));
+    tile.appendChild(iconWrap);
+
+    var hiEl=document.createElement("div");
+    hiEl.className="week-tile-hi";
+    hiEl.textContent=max+"°";
+    tile.appendChild(hiEl);
+
+    var loEl=document.createElement("div");
+    loEl.className="week-tile-lo";
+    loEl.textContent=min+"°";
+    tile.appendChild(loEl);
+
+    if(rainP>15){
+      var rc=document.createElement("div");
+      rc.className="rain-chip";
+      var ri=document.createElementNS("http://www.w3.org/2000/svg","svg");
+      ri.setAttribute("width","8");ri.setAttribute("height","10");ri.setAttribute("viewBox","0 0 8 10");ri.setAttribute("fill","none");
+      var rp2=document.createElementNS("http://www.w3.org/2000/svg","path");
+      rp2.setAttribute("d","M4 0.5 Q7 3.5 7 6 Q7 8.5 4 8.5 Q1 8.5 1 6 Q1 3.5 4 0.5Z");
+      rp2.setAttribute("stroke","#7dd3fc");rp2.setAttribute("stroke-width","1");rp2.setAttribute("stroke-linejoin","round");
+      ri.appendChild(rp2); rc.appendChild(ri);
+      var rpt=document.createElement("span");rpt.textContent=rainP+"%";
+      rc.appendChild(rpt); tile.appendChild(rc);
+    }
+
+    // Chevron
+    var chev=document.createElement("div");
+    chev.style.cssText="font-size:8px;color:rgba(255,255,255,0.3);margin-top:2px;transition:transform .2s";
+    chev.textContent="▾";
+    tile.appendChild(chev);
+
+    tile.addEventListener("click", function(){
+      var wasOpen = expandedIdx===i;
+      // Remove existing detail
+      if(detailEl&&detailEl.parentNode){detailEl.parentNode.removeChild(detailEl);}
+      // Reset all tiles to default style, restore today highlight only if not selected
+      inner.querySelectorAll(".week-tile").forEach(function(t,ti){
+        t.style.background="rgba(255,255,255,0.05)";
+        t.style.borderColor="rgba(255,255,255,0.07)";
+      });
+      // Reset all chevrons
+      inner.querySelectorAll(".week-tile div:last-child").forEach(function(c){c.style.transform="none";});
+      if(wasOpen){
+        // Restore today highlight when closing
+        var todayTile=inner.querySelector(".week-tile");
+        if(todayTile){todayTile.style.background="rgba(255,255,255,0.12)";todayTile.style.borderColor="rgba(255,255,255,0.18)";}
+        expandedIdx=-1;detailEl=null;return;
+      }
+      expandedIdx=i;
+      // Highlight selected tile
+      tile.style.background="rgba(255,255,255,0.16)";
+      tile.style.borderColor="rgba(255,255,255,0.28)";
+      chev.style.transform="rotate(180deg)";
+      detailEl=buildDetail(i);
+      // Insert detail below the tile scroll, inside the itile container
+      var tilesWrap=el("week-tiles-wrap");
+      tilesWrap.parentNode.insertBefore(detailEl, tilesWrap.nextSibling);
+    });
+
+    return tile;
+  }
+
+  daily.time.forEach(function(d,i){ inner.appendChild(makeTile(i)); });
+}
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+window.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
