@@ -666,12 +666,11 @@ function renderInsights(cur, daily, hourly, now, todayStr, riseMins, setMins) {
 
   // Daylight bar
   var riseX = (riseMins / 1440 * 100).toFixed(1);
-  var width  = ((setMins - riseMins) / 1440 * 100).toFixed(1);
-  el('i-dlfill').style.left  = riseX+'%';
-  el('i-dlfill').style.width = width+'%';
-  el('i-dl-label').textContent = 'Daylight '+daylightHours(riseMins, setMins);
-  el('i-rise-lbl').textContent = 'up '+minsToStr(riseMins);
-  el('i-set-lbl').textContent  = 'down '+minsToStr(setMins);
+  var insightsDlW = ((setMins - riseMins) / 1440 * 100).toFixed(1);
+  var dlFill3 = el('i-dlfill'); if(dlFill3){ dlFill3.style.left=riseX+'%'; dlFill3.style.width=insightsDlW+'%'; }
+  var dlLbl3 = el('i-dl-label'); if(dlLbl3) dlLbl3.textContent = 'Daylight '+daylightHours(riseMins, setMins);
+  var riseLbl3 = el('i-rise-lbl'); if(riseLbl3) riseLbl3.textContent = minsToStr(riseMins)+' rise';
+  var setLbl3 = el('i-set-lbl'); if(setLbl3) setLbl3.textContent = minsToStr(setMins)+' set';
 
   // Conditions rows
   renderCondRows(cur, daily, hourly);
@@ -681,11 +680,6 @@ function renderInsights(cur, daily, hourly, now, todayStr, riseMins, setMins) {
 
   // Week
   renderIWeek(daily, now);
-
-  // Radar
-  el('i-radar-city').textContent = city.name;
-  currentRadarUrl = 'https://www.bom.gov.au/products/'+city.radar+'.loop.shtml';
-  el('radar-link').href = currentRadarUrl;
 }
 
 function daylightHours(rise, set) {
