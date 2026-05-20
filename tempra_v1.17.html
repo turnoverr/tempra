@@ -1075,6 +1075,7 @@ function render() {
   }
 
   // Briefing
+  console.log("calling renderBriefing");
   renderBriefing(cur, daily, hourly, now, todayStr, riseMins, setMins);
 
   // Insights
@@ -1190,7 +1191,9 @@ function renderBriefing(cur, daily, hourly, now, todayStr, riseMins, setMins) {
   el("briefing-card").textContent = todayText;
 
   // Call Worker for AI briefing
+  console.log("calling genAIBriefing");
   genAIBriefing(cur, daily, hourly, todayStr, riseMins, setMins, function(err, text){
+    console.log("genAI callback:", err, text && text.slice(0,50));
     if(err){ console.warn('AI briefing:', err); return; }
     // Split on INSIGHTS: marker
     var parts = text.split('INSIGHTS:');
