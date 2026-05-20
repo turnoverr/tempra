@@ -689,7 +689,6 @@ function daylightHours(rise, set) {
 
 function renderCondRows(cur, daily, hourly) {
   var rows = el('i-cond-rows');
-  if(!rows) return;
   rows.innerHTML = '';
   var wind  = Math.round(cur.windspeed_10m);
   var hum   = cur.relative_humidity_2m;
@@ -811,8 +810,7 @@ function renderActivityTags(cur, daily) {
   else if(rainP<20)     tags.push({t:'Gardening',g:true});
   if(rainP>60)          tags.push({t:'Outdoor plans - rain likely',g:false});
 
-  var wrap=el('i-act-tags'); if(!wrap) return;
-  wrap.innerHTML='';
+  var wrap=el('i-act-tags'); wrap.innerHTML='';
   var lbl=el('i-act-label');
   if(tags.length===0){lbl.style.display='none';return;}
   lbl.style.display='block';
@@ -825,8 +823,7 @@ function renderActivityTags(cur, daily) {
 }
 
 function renderIWeek(daily, now) {
-  var rowsEl=el('i-week-rows'); if(!rowsEl) return;
-  rowsEl.innerHTML='';
+  var rowsEl=el('i-week-rows'); rowsEl.innerHTML='';
   var maxes=daily.temperature_2m_max.slice(1,7);
   var bestIdx=maxes.indexOf(Math.max.apply(null,maxes));
   var bestDate=new Date(daily.time[bestIdx+1]+'T00:00:00');
@@ -1013,50 +1010,10 @@ function genAIBriefing(cur, daily, hourly, todayStr, riseMins, setMins, callback
 }
 
 
-// ── Weather fetch ─────────────────────────────────────────────────────────────
-function loadWeather() {
-  el("loading").classList.remove("hidden");
-  el("simple-view").classList.add("hidden");
-  el("insights-view").classList.remove("visible");
-  weather = null;
-
-  var url = "https://api.open-meteo.com/v1/forecast"
-    +"?latitude="+city.lat+"&longitude="+city.lon
-    +"&current=temperature_2m,apparent_temperature,relative_humidity_2m,weathercode,windspeed_10m,windgusts_10m,precipitation"
-    +"&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weathercode"
-    +"&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max,"
-    +"precipitation_sum,precipitation_probability_max,precipitation_hours,sunrise,sunset,uv_index_max"
-    +"&timezone="+(city.tz||"auto")+"&forecast_days=10";
-
-  fetch(url).then(function(r){return r.json();}).then(function(data){
-    weather = data;
-    el("loading").classList.add("hidden");
-    // Show view FIRST so page is never blank regardless of render errors
-    if(insightsMode) { el("insights-view").classList.add("visible"); }
-    else { el("simple-view").classList.remove("hidden"); }
-    // Render — errors logged but never blank the page
-    try { _render(); } catch(e) {
-      console.error("Render error:", e.message, e.stack);
-    }
-    // AQI
-    var aqUrl = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude="+city.lat+"&longitude="+city.lon+"&current=european_aqi&timezone="+city.tz;
-    fetch(aqUrl).then(function(r){return r.json();}).then(function(d){
-      var raw = d && d.current && d.current.european_aqi;
-      if(raw!=null){
-        var idx = raw<=20?0:raw<=40?1:raw<=60?2:raw<=80?3:4;
-        var aqiLbl=el("aqi-label"); if(aqiLbl){aqiLbl.textContent=AQI_LABELS[idx];aqiLbl.style.color=AQI_COLORS[idx];}
-        var aqiSub=el("aqi-sub"); if(aqiSub) aqiSub.textContent="European AQI index";
-        var aqiFill=el("aqi-fill"); if(aqiFill){aqiFill.style.width=(((idx+1)/5)*100)+"%";aqiFill.style.background=AQI_COLORS[idx];}
-      }
-    }).catch(function(){});
-  }).catch(function(){
-    el("loading").innerHTML = "<p style='color:rgba(0,0,0,0.4);padding:20px'>Couldn't load weather.<br><button onclick='loadWeather()' style='margin-top:12px;padding:8px 20px;border-radius:99px;background:#0a0a0a;color:#fff;font-size:13px;cursor:pointer'>Try again</button></p>";
-  });
-}
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function render() {
-  try { _render(); } catch(e) { console.error('render:', e.message); }
+  try { _render(); } catch(e) { console.error('Render error:', e); }
 }
 function _render() {
   if(!weather || !weather.current || !weather.daily) return;
@@ -1097,9 +1054,7 @@ function _render() {
     '<span style="font-size:13px;color:rgba(0,0,0,0.42)">Feels like '+feels+'°</span>'+
     '<span style="font-size:12px;color:rgba(0,0,0,0.3)">Expecting '+lo+'° to '+hi+'° today'+(rainPct>0?'   '+rainPct+'% rain':'')+'</span>';
 
-  // Cache data for insights briefing updates
-  currentDaily=daily; currentHourly=hourly; currentNow=now;
-  currentCity=city.name;
+  // data cached in safeRender
   currentRiseMins=riseMins; currentSetMins=setMins;
 
   // Sun strip
@@ -1121,8 +1076,8 @@ function _render() {
   // Briefing
   renderBriefing(cur, daily, hourly, now, todayStr, riseMins, setMins);
 
-  // Insights - wrapped separately so a crash here never affects simple view
-  try { renderInsights(cur, daily, hourly, now, todayStr, riseMins, setMins); } catch(e) { console.error('insights:', e.message); }
+  // Insights
+  renderInsights(cur, daily, hourly, now, todayStr, riseMins, setMins);
 
   // Hourly strip
   renderHourly(hourly, now);
@@ -1138,6 +1093,153 @@ function _render() {
 
   // 10-day tiles
   renderTiles(daily);
+}
+
+
+// ── Weather fetch ─────────────────────────────────────────────────────────────
+function loadWeather() {
+  var loading = el("loading");
+  var simple = el("simple-view");
+  var insights = el("insights-view");
+
+  if(loading) loading.classList.remove("hidden");
+  if(simple) simple.classList.add("hidden");
+  if(insights) insights.classList.remove("visible");
+  weather = null;
+
+  var url = "https://api.open-meteo.com/v1/forecast"
+    +"?latitude="+city.lat+"&longitude="+city.lon
+    +"&current=temperature_2m,apparent_temperature,relative_humidity_2m,weathercode,windspeed_10m,windgusts_10m,precipitation"
+    +"&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weathercode"
+    +"&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max,"
+    +"precipitation_sum,precipitation_probability_max,precipitation_hours,sunrise,sunset,uv_index_max"
+    +"&timezone="+(city.tz||"auto")+"&forecast_days=10";
+
+  fetch(url)
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      weather = data;
+
+      // 1. Hide loading
+      if(loading) loading.classList.add("hidden");
+
+      // 2. Show correct view - do this BEFORE any rendering
+      if(insightsMode) {
+        if(insights) insights.classList.add("visible");
+      } else {
+        if(simple) simple.classList.remove("hidden");
+      }
+
+      // 3. Render simple view first - most critical
+      safeRender();
+
+      // 4. AQI in background - failures don't affect main view
+      fetchAQI();
+    })
+    .catch(function(e){
+      console.error("Weather fetch failed:", e);
+      if(loading) loading.innerHTML = "<p style='padding:40px 20px;text-align:center;color:rgba(0,0,0,0.4);font-size:14px'>Could not load weather.<br><br><button onclick='loadWeather()' style='padding:10px 24px;border-radius:99px;background:#0a0a0a;color:#fff;border:none;font-size:13px;cursor:pointer'>Try again</button></p>";
+    });
+}
+
+function fetchAQI() {
+  if(!city || !city.lat) return;
+  var aqUrl = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude="+city.lat+"&longitude="+city.lon+"&current=european_aqi&timezone="+(city.tz||"auto");
+  fetch(aqUrl)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var raw = d && d.current && d.current.european_aqi;
+      if(raw == null) return;
+      var idx = raw<=20?0:raw<=40?1:raw<=60?2:raw<=80?3:4;
+      var aqiLbl = el("aqi-label");
+      var aqiSub = el("aqi-sub");
+      var aqiFill = el("aqi-fill");
+      if(aqiLbl){ aqiLbl.textContent = AQI_LABELS[idx]; aqiLbl.style.color = AQI_COLORS[idx]; }
+      if(aqiSub) aqiSub.textContent = "European AQI index";
+      if(aqiFill){ aqiFill.style.width = (((idx+1)/5)*100)+"%"; aqiFill.style.background = AQI_COLORS[idx]; }
+    })
+    .catch(function(){});
+}
+
+// Safe render - each section wrapped independently
+function safeRender() {
+  if(!weather || !weather.current || !weather.daily || !weather.hourly) {
+    console.warn("safeRender: missing weather data");
+    return;
+  }
+  var now = new Date();
+  var todayStr = localDateStr(now);
+  var cur = weather.current;
+  var daily = weather.daily;
+  var hourly = weather.hourly;
+
+  var temp = Math.round(cur.temperature_2m);
+  var feels = Math.round(cur.apparent_temperature);
+  var hi = Math.round(daily.temperature_2m_max[0]);
+  var lo = Math.round(daily.temperature_2m_min[0]);
+  var code = cur.weathercode;
+  var uv = (daily.uv_index_max && daily.uv_index_max[0]) || 0;
+  var rainPct = (daily.precipitation_probability_max && daily.precipitation_probability_max[0]) || 0;
+  var wind = Math.round(cur.windspeed_10m);
+  var humid = cur.relative_humidity_2m;
+  var riseMins = timeToMins(daily.sunrise && daily.sunrise[0]);
+  var setMins = timeToMins(daily.sunset && daily.sunset[0]);
+
+  // ── Simple view header
+  try {
+    var dayLbl = el("day-label");
+    if(dayLbl) dayLbl.textContent = DAYS_L[now.getDay()]+", "+MONTHS_L[now.getMonth()]+" "+ord(now.getDate());
+    var tempBig = el("temp-big");
+    if(tempBig) tempBig.innerHTML = temp+"<span>"+String.fromCharCode(176)+"</span>";
+    var condIcon = el("condition-icon");
+    if(condIcon){ condIcon.innerHTML=""; condIcon.appendChild(weatherIcon(code,28,"rgba(0,0,0,0.55)",1.4)); }
+    var condLbl = el("condition-label");
+    if(condLbl) condLbl.textContent = getCode(code);
+    var meta = el("meta-row");
+    if(meta) meta.innerHTML =
+      '<span style="font-size:13px;color:rgba(0,0,0,0.42)">Feels like '+feels+String.fromCharCode(176)+'</span>'+
+      '<span style="font-size:12px;color:rgba(0,0,0,0.3)">Expecting '+lo+String.fromCharCode(176)+' to '+hi+String.fromCharCode(176)+' today'+(rainPct>0?' &middot; '+rainPct+'% rain':'')+'</span>';
+    var sunriseVal = el("sunrise-val");
+    if(sunriseVal) sunriseVal.textContent = minsToStr(riseMins);
+    var sunsetVal = el("sunset-val");
+    if(sunsetVal) sunsetVal.textContent = minsToStr(setMins);
+  } catch(e){ console.error("header:", e.message); }
+
+  // ── Briefing
+  try { renderBriefing(cur, daily, hourly, now, todayStr, riseMins, setMins); }
+  catch(e){ console.error("briefing:", e.message); }
+
+  // ── Hourly strip
+  try { renderHourly(hourly, now); }
+  catch(e){ console.error("hourly:", e.message); }
+
+  // ── Dial
+  try { renderDial(hourly, now, todayStr, riseMins, setMins); }
+  catch(e){ console.error("dial:", e.message); }
+
+  // ── Graph
+  try { renderGraph(hourly, now, todayStr, riseMins, setMins); }
+  catch(e){ console.error("graph:", e.message); }
+
+  // ── Week chips
+  try { renderWeek(daily, now); }
+  catch(e){ console.error("week:", e.message); }
+
+  // ── Tiles (guarded)
+  try { renderTiles(daily); }
+  catch(e){ console.error("tiles:", e.message); }
+
+  // ── Insights (entirely separate, never affects simple view)
+  try { renderInsights(cur, daily, hourly, now, todayStr, riseMins, setMins); }
+  catch(e){ console.error("insights:", e.message); }
+
+  // ── Cache for later use
+  currentDaily = daily;
+  currentHourly = hourly;
+  currentNow = now;
+  currentCity = city.name;
+  currentRiseMins = riseMins;
+  currentSetMins = setMins;
 }
 
 // ── Briefing ──────────────────────────────────────────────────────────────────
@@ -1231,11 +1333,11 @@ function renderBriefing(cur, daily, hourly, now, todayStr, riseMins, setMins) {
   var insightsText = s1+" "+weekNote;
 
   // Set both simple and insights briefing immediately with local text
-  el("briefing-card").textContent = todayText;
+  var bc=el("briefing-card"); if(bc) bc.textContent = todayText;
   var insMain = el("i-briefing-main");
   if(insMain) insMain.textContent = todayText;
   var insSub = el("i-briefing-sub");
-  if(insSub) insSub.textContent = insightsText.replace(todayText,'').trim();
+  if(insSub) insSub.textContent = '';
 
   // Call Worker for AI briefing
   genAIBriefing(cur, daily, hourly, todayStr, riseMins, setMins, function(err, text){
@@ -1245,7 +1347,7 @@ function renderBriefing(cur, daily, hourly, now, todayStr, riseMins, setMins) {
     var simpleText = parts[0].trim();
     var insightsExtra = parts[1] ? parts[1].trim() : '';
     if(simpleText) {
-      el("briefing-card").textContent = simpleText;
+      var bcAI=el("briefing-card"); if(bcAI) bcAI.textContent = simpleText;
       var insMainAI = el("i-briefing-main");
       if(insMainAI) insMainAI.textContent = simpleText+(insightsExtra?' '+insightsExtra:'');
       var insSubAI = el("i-briefing-sub");
@@ -1429,16 +1531,13 @@ function renderDial(hourly, now, todayStr, riseMins, setMins) {
     if(!slot) return;
     var isNow = idx===dialCurrentIdx && dialActiveIdx===-1;
     // Time label: "Now" at rest, time string while scrolling
-    el("dial-time-label").textContent = isNow?"Now":slot.label;
+    var dtl=el("dial-time-label"); if(dtl) dtl.textContent = isNow?"Now":slot.label;
     // Temp and feels like
-    el("dial-temp").textContent = slot.temp+"°";
-    el("dial-feels").textContent = slot.feels+"°";
+    var dtEl = el("dial-temp"); if(dtEl) dtEl.textContent = slot.temp+String.fromCharCode(176);
+    var dfEl = el("dial-feels"); if(dfEl) dfEl.textContent = slot.feels+String.fromCharCode(176);
     // Icon - weatherIcon returns a DOM node, use appendChild
     var iconEl = el("dial-icon");
-    if(iconEl){
-      iconEl.innerHTML = "";
-      iconEl.appendChild(weatherIcon(slot.code||0, 56, "#0a0a0a", 1.5));
-    }
+    if(iconEl){ try{ iconEl.innerHTML=""; iconEl.appendChild(weatherIcon(slot.code||0,56,"#0a0a0a",1.5)); }catch(e){} }
     // Sync graph dot
     syncGraphDot(idx);
   }
